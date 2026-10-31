@@ -125,11 +125,17 @@ def remove_project_files(project_id: int) -> list[str]:
     """Delete a deleted project's uploads and exports from disk (4.2.0). The
     manual promised it; the folders stayed, with the venue's documents in them."""
     gone = []
-    for base in (settings.uploads_dir, settings.exports_dir, settings.composite_dir):
+    for base in (settings.uploads_dir, settings.exports_dir):
         d = base / f"project_{project_id}"
         if d.is_dir():
             shutil.rmtree(d, ignore_errors=True)
             gone.append(str(d))
+    # The maps (5.1.2): the server may hold a map's picture open to draw it, and
+    # on Windows an open file cannot be deleted - the folder stayed behind.
+    from . import composite_service as CS
+    d = CS.remove_project_maps(project_id)
+    if d:
+        gone.append(d)
     return gone
 
 

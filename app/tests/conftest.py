@@ -11,8 +11,15 @@ removed when the run ends; a folder another program made is never touched.
 from __future__ import annotations
 
 import gc
+import os
 import shutil
 import tempfile
+
+# 5.1.2: a composite map is drawn ahead in the background once it is built.
+# The suite builds dozens of maps of invented books and looks at none of their
+# pictures; drawing them all ahead made run-tests several times slower. Only
+# tests/test_composite_speed_512.py turns it on, for the tests about it.
+os.environ.setdefault("NER_DRAW_AHEAD", "0")
 
 _made: list[str] = []
 _mkdtemp = tempfile.mkdtemp

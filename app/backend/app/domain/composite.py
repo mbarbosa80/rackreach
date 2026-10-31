@@ -84,6 +84,19 @@ PDF_MAX_SIDE = 14400.0
 #: Tiles: square, this many pixels; zoom level z draws 2**z / 64 px per point.
 TILE_PX = 512
 TILE_ZMAX = 9
+#: Composites whose page is kept interpreted in memory (5.1.2). Without it every
+#: tile made MuPDF read the whole composed page again - 1.6 to 2 s a tile on a
+#: 28 MB level, whatever the zoom - and only then cut the square out. Kept, a
+#: tile takes 0.06 to 0.4 s. It costs memory (about 90 MB for that level, more
+#: for a bigger one), so only the maps opened last keep it.
+DISPLAY_LISTS_KEPT = 2
+#: Zoom levels drawn ahead in the background once a map is composed (5.1.2):
+#: the levels a person sees when the map opens and the first steps in, so the
+#: map opens drawn. Deeper levels are still drawn on request.
+PRERENDER_ZMAX = 5
+#: A map with more tiles than this in those levels is not drawn ahead past the
+#: level that crosses it (a guard for a very large book).
+PRERENDER_MAX_TILES = 600
 
 
 def tile_scale(z: int) -> float:
@@ -657,27 +670,78 @@ def compose(pdf_path: str, group: dict, out_path: str) -> dict:
     return {"width": frame["width"], "height": frame["height"]}
 
 
-_open_docs: "collections.OrderedDict[str, Any]" = collections.OrderedDict()
+#: base PDF -> {"doc", "page", "dl"}: the composites open, newest last.
+_open_docs: "collections.OrderedDict[str, dict]" = collections.OrderedDict()
+
+
+def _source(base_pdf: str):
+    """What a tile of ``base_pdf`` is cut from. PyMuPDF's ``Page.get_pixmap``
+    builds a display list of the whole page and renders the clip from it, then
+    throws the list away; keeping the list (5.1.2) draws the same pixels without
+    reading the page again. Only the ``DISPLAY_LISTS_KEPT`` composites used
+    last keep one. Callers serialise access."""
+    import pymupdf
+    ent = _open_docs.get(base_pdf)
+    if ent is None:
+        doc = pymupdf.open(base_pdf)
+        ent = {"doc": doc, "page": doc[0], "dl": None}
+        _open_docs[base_pdf] = ent
+        while len(_open_docs) > 4:
+            _, old = _open_docs.popitem(last=False)
+            _close(old)
+    else:
+        _open_docs.move_to_end(base_pdf)
+    for i, e in enumerate(reversed(list(_open_docs.values()))):
+        if i >= DISPLAY_LISTS_KEPT:
+            e["dl"] = None
+    if DISPLAY_LISTS_KEPT <= 0:
+        return ent["page"]
+    if ent["dl"] is None:
+        ent["dl"] = ent["page"].get_displaylist()
+    return ent["dl"]
+
+
+def release_pages() -> None:
+    """Let go of every kept page (the documents stay open, cheap): what the
+    server holds when nobody is drawing. Callers serialise access."""
+    for ent in _open_docs.values():
+        ent["dl"] = None
+
+
+def _close(ent: dict) -> None:
+    ent["dl"] = None
+    ent["page"] = None
+    ent["doc"].close()
+
+
+def tiles_across(width: float, height: float, z: int) -> tuple[int, int]:
+    """Columns and rows of tiles that cover a composite at zoom ``z``."""
+    span = TILE_PX / tile_scale(z)
+    return max(1, math.ceil(width / span)), max(1, math.ceil(height / span))
+
+
+def prerender_plan(width: float, height: float) -> list[tuple[int, int, int]]:
+    """The tiles drawn ahead once a map is composed (5.1.2): every tile of the
+    zoom levels up to ``PRERENDER_ZMAX``, coarse first, stopping before the
+    level that would take the total past ``PRERENDER_MAX_TILES``."""
+    out: list[tuple[int, int, int]] = []
+    for z in range(0, PRERENDER_ZMAX + 1):
+        nx, ny = tiles_across(width, height, z)
+        if out and len(out) + nx * ny > PRERENDER_MAX_TILES:
+            break
+        out += [(z, x, y) for y in range(ny) for x in range(nx)]
+    return out
 
 
 def render_tile(base_pdf: str, z: int, x: int, y: int) -> bytes:
     """One square PNG of the composite at zoom ``z`` (``tile_scale``), column
     ``x``, row ``y``. Off the map: an empty tile. Callers serialise access."""
     import pymupdf
-    doc = _open_docs.get(base_pdf)
-    if doc is None:
-        doc = pymupdf.open(base_pdf)
-        _open_docs[base_pdf] = doc
-        while len(_open_docs) > 4:
-            _, old = _open_docs.popitem(last=False)
-            old.close()
-    else:
-        _open_docs.move_to_end(base_pdf)
-    page = doc[0]
+    src = _source(base_pdf)
     s = tile_scale(z)
     span = TILE_PX / s
     clip = pymupdf.Rect(x * span, y * span, (x + 1) * span, (y + 1) * span)
-    pix = page.get_pixmap(matrix=pymupdf.Matrix(s, s), clip=clip, alpha=False)
+    pix = src.get_pixmap(matrix=pymupdf.Matrix(s, s), clip=clip, alpha=False)
     if pix.width < TILE_PX or pix.height < TILE_PX:
         full = pymupdf.Pixmap(pymupdf.csRGB, pymupdf.IRect(0, 0, TILE_PX, TILE_PX), False)
         full.set_rect(full.irect, (255, 255, 255))
@@ -690,6 +754,15 @@ def render_tile(base_pdf: str, z: int, x: int, y: int) -> bytes:
 
 def forget(base_pdf: str) -> None:
     """Close a composite another build is about to replace."""
-    doc = _open_docs.pop(base_pdf, None)
-    if doc is not None:
-        doc.close()
+    ent = _open_docs.pop(base_pdf, None)
+    if ent is not None:
+        _close(ent)
+
+
+def forget_under(folder: str) -> None:
+    """Close every composite kept open under ``folder`` (a project's maps,
+    about to be deleted). Callers serialise access."""
+    import os
+    root = os.path.normcase(os.path.abspath(folder)) + os.sep
+    for path in [p for p in _open_docs if os.path.normcase(os.path.abspath(p)).startswith(root)]:
+        _close(_open_docs.pop(path))

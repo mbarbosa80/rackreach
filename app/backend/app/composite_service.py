@@ -21,7 +21,10 @@ from __future__ import annotations
 
 import collections
 import datetime as _dt
+import logging
 import math
+import os
+import queue
 import re
 import shutil
 import threading
@@ -98,6 +101,20 @@ def _drop_files(cmap: CompositeMap) -> None:
         C.forget(str(base_path(cmap)))
         base_path(cmap).unlink(missing_ok=True)
         shutil.rmtree(_tiles_dir(cmap), ignore_errors=True)
+
+
+def remove_project_maps(project_id: int) -> Optional[str]:
+    """Delete a deleted project's maps from disk (5.1.2). Under the tile lock,
+    after closing every picture of the project the server holds open: an open
+    file cannot be deleted on Windows, and drawing ahead keeps the picture open.
+    Anything still queued for the project finds its picture gone and stops."""
+    d = settings.composite_dir / f"project_{project_id}"
+    with _TILE_LOCK:
+        C.forget_under(str(d))
+        if not d.is_dir():
+            return None
+        shutil.rmtree(d, ignore_errors=True)
+    return str(d)
 
 
 def _safe(key: str) -> str:
@@ -177,6 +194,7 @@ def build(db: Session, project: Project, drawing: Drawing, *, only: Optional[lis
     res = isolate.run("app.domain.composite.align_book", drawing.stored_path, facts, only,
                       progress=_p)
     built = []
+    rows: list[CompositeMap] = []
     groups = res["groups"]
     if not groups:
         raise CompositeError(f"every level of {drawing.filename} is drawn on one sheet — "
@@ -210,7 +228,10 @@ def build(db: Session, project: Project, drawing: Drawing, *, only: Optional[lis
                {"book": drawing.filename, "group": row.label, "sheets": len(row.sheets),
                 **{k: v for k, v in st.items()}})
         built.append(summary(row, drawing))
+        rows.append(row)
     db.commit()
+    for row in rows:
+        draw_ahead(row)
     prog(1.0, "done")
     return {"maps": built}
 
@@ -303,6 +324,7 @@ def set_excluded(db: Session, project: Project, cmap: CompositeMap, page: int, e
            {"group": cmap.label, "page": page, "sheet": hit[0].get("sheet_number"),
             "excluded": bool(excluded)}, actor=actor)
     db.commit()
+    draw_ahead(cmap)
     return summary(cmap, drawing)
 
 
@@ -356,9 +378,100 @@ def tile(db: Session, cmap: CompositeMap, z: int, x: int, y: int) -> bytes:
         if path.exists():
             return path.read_bytes()
         png = C.render_tile(str(base_path(cmap)), z, x, y)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(png)
+        _write_tile(path, png)
     return png
+
+
+def _write_tile(path: Path, png: bytes) -> None:
+    """Write a tile whole or not at all (5.1.2): a request reads a tile that
+    exists without taking the lock, so it must never find half a file - the
+    background drawing below writes tiles while the map is being looked at."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(f"{path.name}.{threading.get_ident()}.part")
+    tmp.write_bytes(png)
+    os.replace(tmp, path)
+
+
+# ---------------------------------------------------------------------------
+# Drawing ahead (5.1.2)
+# ---------------------------------------------------------------------------
+#
+# Marcelo, 31 Oct 2026: the map took a minute to appear the first time - every
+# tile was drawn on request, one at a time. Once a map is composed, the zoom
+# levels it opens at are drawn in the background, one map after another (a book
+# with several levels composes several maps at once, and drawing them side by
+# side would push each other's page out of memory). A request for a tile still
+# comes first: both take the same lock, one tile at a time, so a person waits
+# at most one background tile. When the queue is empty the kept pages are let
+# go, so a server left alone does not hold them.
+
+_log = logging.getLogger(__name__)
+_AHEAD: "queue.Queue[tuple[str, Path, list]]" = queue.Queue()
+_AHEAD_GUARD = threading.Lock()
+_ahead_worker: Optional[threading.Thread] = None
+
+
+def draw_ahead(cmap: CompositeMap) -> int:
+    """Queue the tiles a map opens at; returns how many are planned.
+    ``NER_DRAW_AHEAD=0`` turns it off (the test suite does)."""
+    global _ahead_worker
+    if os.environ.get("NER_DRAW_AHEAD", "1") == "0":
+        return 0
+    if not cmap.frame or not cmap.base_file or not base_path(cmap).exists():
+        return 0
+    plan = C.prerender_plan(cmap.frame["width"], cmap.frame["height"])
+    _AHEAD.put((str(base_path(cmap)), _tiles_dir(cmap), plan))
+    with _AHEAD_GUARD:
+        if _ahead_worker is None:
+            _ahead_worker = threading.Thread(target=_ahead_loop, name="ner-composite-ahead",
+                                             daemon=True)
+            _ahead_worker.start()
+    return len(plan)
+
+
+def _ahead_loop() -> None:
+    global _ahead_worker
+    while True:
+        try:
+            base, tiles, plan = _AHEAD.get(timeout=5)
+        except queue.Empty:
+            with _AHEAD_GUARD:
+                if _AHEAD.empty():
+                    # Cleared under the guard: a map queued from here on
+                    # starts a new worker.
+                    _ahead_worker = None
+                    with _TILE_LOCK:
+                        C.release_pages()
+                    return
+            continue
+        try:
+            _draw_plan(base, tiles, plan)
+        except Exception:                                   # never takes the server down
+            _log.exception("drawing a composite map ahead failed (%s)", base)
+        finally:
+            _AHEAD.task_done()
+
+
+def _draw_plan(base: str, tiles: Path, plan: list) -> None:
+    for z, x, y in plan:
+        with _TILE_LOCK:
+            if not os.path.exists(base):
+                return              # the picture was replaced, or the map deleted
+            path = tiles / str(z) / f"{x}_{y}.png"
+            if path.exists():
+                continue
+            _write_tile(path, C.render_tile(base, z, x, y))
+
+
+def ahead_idle(timeout: float = 120.0) -> bool:
+    """Wait until every queued map is drawn ahead (tests, tools)."""
+    import time
+    end = time.monotonic() + timeout
+    while _AHEAD.unfinished_tasks:
+        if time.monotonic() > end:
+            return False
+        time.sleep(0.05)
+    return True
 
 
 # ---------------------------------------------------------------------------

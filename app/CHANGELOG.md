@@ -41,6 +41,42 @@ package.
 
 ---
 
+## 5.1.2 — 2026-10-31
+
+PATCH: the composite map draws faster, and an update no longer leaves the server
+down when a task cannot be replaced. No screen, no file shape and no database
+change; the map is the same picture, pixel for pixel.
+
+- **The map took about a minute to appear the first time.** Measured on a 28 MB
+  level (31 Oct 2026): every tile took 1.6 to 2 s whatever the zoom, because
+  PyMuPDF read the whole composed page again for each square and only then cut it
+  out, and the tiles were drawn one at a time - one zoom level of the opening view
+  (35 tiles) took 59 s. Now the page is kept interpreted in memory (a display list)
+  for the two maps used last, so a tile takes 0.06 to 0.4 s, and once a map is built
+  or a sheet is left off it the zoom levels it opens at (0 to 5, at most 600 tiles)
+  are drawn in the background, one map after another; a tile someone asks for still
+  comes first. When nothing is left to draw ahead the kept pages are let go. The
+  memory cost is about 90 MB per kept map on that level. A tile is now written whole
+  (a temporary file, then renamed), since tiles are written while the map is being
+  looked at. Held by `tests/test_composite_speed_512.py`, which compares the new
+  tiles with the old ones pixel by pixel. The test suite builds dozens of maps
+  it never looks at, so it turns drawing ahead off (`NER_DRAW_AHEAD=0` in
+  `tests/conftest.py`) except in the tests about it.
+- **An update could end with the application installed and not running.** Where an
+  earlier install had been accepted at the administrator prompt, the watchdog task
+  belonged to the administrators; `setup.bat --no-admin` could not replace it
+  ("Access is denied"), `autostart.bat` reported a problem and setup stopped before
+  starting the server. `tools/watchdog-install.ps1` now keeps a watchdog task that
+  already runs this installation's watchdog, and says so; `setup.bat` starts the
+  server even when the tasks report a problem.
+- **A deleted project could leave its maps on disk.** The server keeps a map's
+  picture open while it draws it, and on Windows an open file cannot be deleted:
+  deleting the project removed everything else and left the map folder behind. It
+  was already so for a map someone had just looked at; drawing ahead made it
+  certain. A project's maps are now closed and deleted under the same lock the
+  tiles take. Found by the 5.0.0 test that deletes a project after building its
+  map.
+
 ## 5.1.1 — 2026-10-31
 
 PATCH: what the complementary QA of 5.1.0 found (31 Oct 2026). No screen and no file

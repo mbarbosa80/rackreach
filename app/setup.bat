@@ -334,12 +334,16 @@ goto :cleanup
 echo   [4/6] Registering the sign-in task and the watchdog ^(autostart.bat^)...
 call :in_target autostart.bat
 set "RC=%ERRORLEVEL%"
+REM 5.1.2: a problem with the tasks no longer leaves the server down. Until
+REM then setup stopped here, and an update that could not replace a task
+REM registered by an administrator ended with the application installed and
+REM nothing running (Barbosa-Laptop, 31 Oct 2026).
 if not "%RC%"=="0" (
   echo   [*] autostart.bat reported a problem ^(above^). The application is
-  echo       installed; start it with start.bat and run autostart.bat again later.
+  echo       installed and is started now; run autostart.bat again later so it
+  echo       also starts by itself at sign-in.
   if defined HAD_WD schtasks /change /tn "%WATCHDOG%" /enable >nul 2>nul
   if defined HAD_TASK schtasks /change /tn "%TASKNAME%" /enable >nul 2>nul
-  goto :cleanup
 )
 echo   [5/6] Starting the server through the scheduled task...
 call :in_target tools\server-start.cmd
