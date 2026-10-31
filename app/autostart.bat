@@ -105,3 +105,7 @@ echo  To stop it:                           stop.bat
 echo  To undo both tasks:                   autostart.bat remove
 echo.
 if not defined NER_NOPAUSE pause
+REM 5.1.2: both tasks exist, so this is a success. Without this line the exit
+REM code was task-harden.ps1's - a battery setting it could not write - and
+REM setup.bat reported "a problem" after "Done".
+exit /b 0

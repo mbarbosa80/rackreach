@@ -47,6 +47,21 @@ try {
     MultipleInstancesPolicy    = 'IgnoreNew'
     StartWhenAvailable         = 'true'
   }
+  # 5.1.2: a task that already has every setting is left alone. Registering it
+  # again needs write access to the task, which a task made by an install run
+  # as administrator does not give the person - and the refusal used to print
+  # "could not change the power settings" for a task that needed no change
+  # (Barbosa-Laptop, 31 Oct 2026).
+  $already = $true
+  foreach ($key in $want.Keys) {
+    $node = $settings.ChildNodes | Where-Object { $_.LocalName -eq $key } | Select-Object -First 1
+    if (-not $node -or $node.InnerText -ne $want[$key]) { $already = $false }
+  }
+  if ($already) {
+    Write-Output "  [ok] '$Name': runs on battery, is not stopped on battery, has no time limit (already set)"
+    exit 0
+  }
+
   foreach ($key in $want.Keys) {
     $node = $settings.ChildNodes | Where-Object { $_.LocalName -eq $key } | Select-Object -First 1
     if (-not $node) {

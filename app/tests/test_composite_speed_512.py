@@ -283,6 +283,22 @@ def test_a_watchdog_registered_by_an_administrator_is_kept():
     assert "schtasks.exe /Query /TN $name /XML" in ps
 
 
+def test_a_task_already_hardened_is_left_alone():
+    """Registering a task again needs write access; an administrator's task
+    refused it and the script said it could not change settings that were
+    already right (Barbosa-Laptop, 31 Oct 2026)."""
+    ps = (ROOT / "tools" / "task-harden.ps1").read_text(encoding="utf-8")
+    early = ps.index("if ($already)")
+    assert early < ps.index("schtasks.exe /Create /TN $Name /XML")
+    assert "exit 0" in ps[early:early + 200]
+
+
+def test_autostart_ends_in_success_once_both_tasks_exist():
+    code = (ROOT / "autostart.bat").read_text(encoding="utf-8", errors="replace")
+    tail = code[code.rindex("Done. The server will start automatically"):]
+    assert tail.rstrip().endswith("exit /b 0")
+
+
 @pytest.mark.skipif(not (ROOT / "setup.bat").exists(),
                     reason="setup.bat is not copied into the folder it installs")
 def test_setup_starts_the_server_even_when_the_tasks_report_a_problem():

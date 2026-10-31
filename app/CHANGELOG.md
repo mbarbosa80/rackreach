@@ -68,7 +68,10 @@ change; the map is the same picture, pixel for pixel.
   ("Access is denied"), `autostart.bat` reported a problem and setup stopped before
   starting the server. `tools/watchdog-install.ps1` now keeps a watchdog task that
   already runs this installation's watchdog, and says so; `setup.bat` starts the
-  server even when the tasks report a problem.
+  server even when the tasks report a problem. `tools/task-harden.ps1` leaves a
+  task that already has its battery settings alone (it used to say it could not
+  change settings that were already right), and `autostart.bat` ends in success
+  once both tasks exist, so setup no longer reports a problem after *Done*.
 - **A deleted project could leave its maps on disk.** The server keeps a map's
   picture open while it draws it, and on Windows an open file cannot be deleted:
   deleting the project removed everything else and left the map folder behind. It
