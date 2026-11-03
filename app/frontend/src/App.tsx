@@ -9,6 +9,7 @@ import {
   ReportsPanel,
   ScalePanel,
   SetupPanel,
+  WifiPanel,
 } from "./pages/panels";
 import { AccountPanel, LoginGate } from "./pages/Access";
 import { ErrorBoundary } from "./components/ErrorBoundary";
@@ -20,7 +21,7 @@ import { getLang, onLangChange, setLang, t } from "./lib/i18n";
 
 export type Tab =
   | "projects" | "setup" | "scale" | "viewer" | "ners"
-  | "matching" | "demand" | "exceptions"
+  | "matching" | "demand" | "wifi" | "exceptions"
   | "reports" | "account";
 
 const TABS: {
@@ -41,8 +42,11 @@ const TABS: {
   // "Coverage analysis" was step 7 until 3 Sep 2026. It is part of Demand
   // per space now: the analysis runs there, beside the rows it decides.
   { key: "demand", label: "Demand per space", step: "6", needsProject: true },
-  { key: "exceptions", label: "Exceptions", step: "7", needsProject: true },
-  { key: "reports", label: "Reports", step: "8", needsProject: true },
+  // Wi-Fi was a card on Scale and a table on Demand until 5.2.0. A point goes
+  // beside the room its TEAP space is tied to, so it comes after the ties.
+  { key: "wifi", label: "Wi-Fi", step: "7", needsProject: true },
+  { key: "exceptions", label: "Exceptions", step: "8", needsProject: true },
+  { key: "reports", label: "Reports", step: "9", needsProject: true },
   { key: "account", label: "Account & security", needsProject: false, aside: true },
 ];
 
@@ -368,6 +372,7 @@ export default function App() {
           {tab === "ners" && <NersPanel ctx={ctx} />}
           {tab === "matching" && <MatchingPanel ctx={ctx} />}
           {tab === "demand" && <DemandPanel ctx={ctx} />}
+          {tab === "wifi" && <WifiPanel ctx={ctx} />}
           {tab === "exceptions" && <ExceptionsPanel ctx={ctx} />}
           {tab === "reports" && <ReportsPanel ctx={ctx} />}
           {tab === "account" && (

@@ -39,7 +39,7 @@ REM       from vendor\wheels, and the check that every component loads;
 REM    4. autostart.bat there - the sign-in task and the watchdog, both set to
 REM       survive a laptop on battery - and starts the server through that
 REM       task, so it belongs to no window and to no session;
-REM    5. waits for http://127.0.0.1:8000/healthz, puts an "NER Analyzer"
+REM    5. waits for http://localhost:8000/healthz, puts an "NER Analyzer"
 REM       shortcut on the desktop and opens the browser;
 REM    6. removes vendor\ from the target (about 100 MB of installation payload
 REM       the running application never reads), then, once this window has
@@ -60,7 +60,12 @@ set "SRC=%SRC:~0,-1%"
 cd /d "%SRC%"
 set "PS=%SystemRoot%\System32\WindowsPowerShell\v1.0\powershell.exe"
 set "USER_NOPAUSE=%NER_NOPAUSE%"
-set "URL=http://127.0.0.1:8000"
+REM What a person opens: localhost, not 127.0.0.1 - on managed computers a
+REM company policy opens http://127.0.0.1 in Edge's Internet Explorer mode, a
+REM blank page (15 Oct 2026). The health probe keeps the address the server
+REM binds to.
+set "URL=http://localhost:8000"
+set "PROBEURL=http://127.0.0.1:8000"
 set "TASKNAME=NER Spatial Coverage Analyzer"
 set "WATCHDOG=NER Analyzer watchdog"
 
@@ -219,6 +224,45 @@ echo   Target:   %TARGET%   ^(%MODE%^)
 if defined SERVICES (echo   Services: sign-in task + watchdog, server started now) else (echo   Services: none - --no-services)
 echo.
 
+REM --- The scheduled tasks already there: can this account change them? -----
+REM 5.2.1. Tasks registered by an installation run as administrator belong to
+REM the administrators; without the rights this setup can neither replace,
+REM disable nor re-enable them (3 Nov 2026: they were left disabled, and the
+REM application did not come back by itself). Found out here, before anything
+REM is changed, and said in plain words.
+set "TASKS_LOCKED="
+set "TASKS_OFF="
+if not "%MODE%"=="update" goto :tasks_checked
+if not defined SERVICES goto :tasks_checked
+if not exist "%SRC%\tools\task-check.ps1" goto :tasks_checked
+set "TCHK=%TEMP%\ner-setup-tasks-%RANDOM%.txt"
+"%PS%" -NoProfile -ExecutionPolicy Bypass -File "%SRC%\tools\task-check.ps1" -Probe > "%TCHK%" 2>nul
+if errorlevel 3 set "TASKS_LOCKED=1"
+findstr /c:"locked DISABLED" "%TCHK%" >nul 2>nul && set "TASKS_OFF=1"
+del /f /q "%TCHK%" >nul 2>nul
+if not defined TASKS_LOCKED goto :tasks_checked
+echo   [*] The scheduled tasks of the installation there were registered by an
+echo       administrator ^(an earlier setup was accepted at the Windows prompt^).
+echo       Without administrator rights this setup cannot replace, disable or
+echo       re-enable them.
+if defined TASKS_OFF echo       They are DISABLED now: the application would not start by itself.
+echo.
+echo       Best: answer N, then right-click setup.bat and choose "Run as
+echo       administrator". The tasks are then made again, and shared with your
+echo       account so that later updates need no administrator.
+echo.
+echo       Or continue: the application is updated and started now, but after a
+echo       restart you start it with tools\server-start.cmd until an
+echo       administrator runs, in an administrator Command Prompt:
+echo         schtasks /change /tn "%TASKNAME%" /enable
+echo         schtasks /change /tn "%WATCHDOG%" /enable
+echo.
+if defined USER_NOPAUSE goto :tasks_checked
+choice /c YN /n /m "       Continue without administrator rights? [Y/N] "
+if errorlevel 2 goto :fail
+echo.
+:tasks_checked
+
 set "HAD_TASK="
 set "HAD_WD="
 set "MOVED="
@@ -234,6 +278,11 @@ REM The scheduled tasks would start the OLD runtime while it is being replaced;
 REM hold them until the new one is in place (autostart.bat re-creates them).
 schtasks /query /tn "%TASKNAME%" >nul 2>nul && set "HAD_TASK=1"
 schtasks /query /tn "%WATCHDOG%" >nul 2>nul && set "HAD_WD=1"
+REM 5.2.1: the watchdog leaves the folder alone while this file exists - the
+REM one that holds when its task cannot be disabled (an administrator's).
+> "%TARGET%.updating" echo setup %VER% %DATE% %TIME%
+if defined TASKS_LOCKED set "HAD_TASK="
+if defined TASKS_LOCKED set "HAD_WD="
 if defined HAD_WD schtasks /change /tn "%WATCHDOG%" /disable >nul 2>nul
 if defined HAD_TASK schtasks /change /tn "%TASKNAME%" /disable >nul 2>nul
 if not exist "%TARGET%\data\ner.sqlite3" goto :update_stop
@@ -323,6 +372,7 @@ if not exist "%TARGET%\.python\.deps-installed" (
 )
 
 REM --- Services, and the server -----------------------------------------------
+set "AUTOSTART_OK="
 if defined SERVICES goto :services
 echo   [4/6] No scheduled task and no server: --no-services.
 echo         Start it by hand with start.bat in the target folder.
@@ -331,9 +381,20 @@ if defined HAD_TASK schtasks /change /tn "%TASKNAME%" /enable >nul 2>nul
 goto :cleanup
 
 :services
+if not defined TASKS_LOCKED goto :services_register
+echo   [4/6] The sign-in task and the watchdog belong to an administrator and are
+echo         left as they are ^(see the note at the start^).
+goto :services_start
+:services_register
 echo   [4/6] Registering the sign-in task and the watchdog ^(autostart.bat^)...
 call :in_target autostart.bat
 set "RC=%ERRORLEVEL%"
+if "%RC%"=="0" set "AUTOSTART_OK=1"
+REM 5.2.1: run with administrator rights, the tasks were just registered from
+REM an administrator's window - shared with the person now, so the next update
+REM does not need the rights.
+fltmc >nul 2>nul
+if not errorlevel 1 if "%RC%"=="0" "%PS%" -NoProfile -ExecutionPolicy Bypass -File "%TARGET%\tools\task-share.ps1"
 REM 5.1.2: a problem with the tasks no longer leaves the server down. Until
 REM then setup stopped here, and an update that could not replace a task
 REM registered by an administrator ended with the application installed and
@@ -345,12 +406,13 @@ if not "%RC%"=="0" (
   if defined HAD_WD schtasks /change /tn "%WATCHDOG%" /enable >nul 2>nul
   if defined HAD_TASK schtasks /change /tn "%TASKNAME%" /enable >nul 2>nul
 )
-echo   [5/6] Starting the server through the scheduled task...
+:services_start
+echo   [5/6] Starting the server...
 call :in_target tools\server-start.cmd
 set /a TRIES=0
 :wait
 set /a TRIES+=1
-"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "try { $r = Invoke-WebRequest -UseBasicParsing '%URL%/healthz' -TimeoutSec 5; if ($r.StatusCode -ne 200) { exit 1 } } catch { exit 1 }" >nul 2>nul
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "try { $r = Invoke-WebRequest -UseBasicParsing '%PROBEURL%/healthz' -TimeoutSec 5; if ($r.StatusCode -ne 200) { exit 1 } } catch { exit 1 }" >nul 2>nul
 if not errorlevel 1 goto :up
 if %TRIES% geq 45 goto :notup
 ping -n 3 127.0.0.1 >nul
@@ -430,6 +492,7 @@ echo         The unzipped package and ner-analyzer-%VER%-windows.zip are deleted
 echo         as soon as this window closes.
 
 :done
+if exist "%TARGET%.updating" del /f /q "%TARGET%.updating" >nul 2>nul
 REM One line per redirection: a "(1)" in a path - Windows numbers duplicate
 REM downloads that way - would end a parenthesised block early.
 set "LOG=%TARGET%\data\setup.log"
@@ -445,11 +508,18 @@ echo   ===========================================================
 echo    Installed - version %VER%
 echo.
 echo    Folder:   %TARGET%
-if defined SERVICES (
+if defined SERVICES if defined AUTOSTART_OK (
   echo    Open:     %URL%   ^(or the "NER Analyzer" desktop shortcut^)
   echo              The server runs with no window, starts by itself at
   echo              sign-in, and the watchdog restarts it if it ever stops.
-) else (
+)
+if defined SERVICES if not defined AUTOSTART_OK (
+  echo    Open:     %URL%   ^(or the "NER Analyzer" desktop shortcut^)
+  echo    [*] It is running now, but it may NOT start by itself after a
+  echo        restart ^(see the messages above^). Until that is fixed, start it
+  echo        with tools\server-start.cmd in the folder above.
+)
+if not defined SERVICES (
   echo    Start:    start.bat in that folder, then open %URL%
 )
 echo.
@@ -525,6 +595,7 @@ if defined HAD_TASK call :in_target tools\server-start.cmd
 if defined HAD_WD schtasks /change /tn "%WATCHDOG%" /enable >nul 2>nul
 if defined HAD_TASK schtasks /change /tn "%TASKNAME%" /enable >nul 2>nul
 :fail
+if exist "%TARGET%.updating" del /f /q "%TARGET%.updating" >nul 2>nul
 echo.
 if not defined USER_NOPAUSE pause
 exit /b 1

@@ -2301,6 +2301,13 @@ TEAP_AP_PER_ROW = 4
 WIFI_STACKED_PT = 2.0
 
 
+#: How far (PDF units) a Wi-Fi point may sit from a label of its room and
+#: still be "beside its room" — the grid *Place Wi-Fi* and *Spread* draw
+#: (rows of ``TEAP_AP_PER_ROW``, ``TEAP_AP_STEP`` apart) stays well inside
+#: it. Farther, and the point was placed for another room (5.2.0).
+WIFI_BESIDE_ROOM = 260.0
+
+
 def free_wifi_slot(x0: float, y0: float, taken: list[tuple[float, float]]
                    ) -> tuple[float, float]:
     """The first free slot of a grid that starts at ``(x0, y0)`` — rows of
@@ -2520,7 +2527,9 @@ def _place_access_points_from_teap(db: Session, project: Project, *, actor: str)
     totals = {"spaces_with_wireless": 0, "placed": 0, "spaces_placed": 0,
               "already_had_points": 0, "removed_extra": 0, "extra_by_hand": 0,
               "no_room": 0, "on_key_plan": 0, "deleted_by_you": 0,
-              "names": [], "removed_names": [], "unplaced_spaces": []}
+              "moved_to_room": 0, "away_kept": 0,
+              "names": [], "removed_names": [], "unplaced_spaces": [],
+              "moved_names": [], "away_kept_names": []}
     declined = set(project.wifi_declined or [])
     # Every Wi-Fi point already on each sheet, so a new one never lands on
     # top of another (4.8.0).
@@ -2529,6 +2538,17 @@ def _place_access_points_from_teap(db: Session, project: Project, *, actor: str)
             Element.project_id == project.id, Element.scenario_id.is_(None),
             Element.kind.in_(DEMAND_KINDS))).scalars():
         occupied.setdefault(sh.of(e), []).append((e.x, e.y))
+    # Where each room is labelled, by code, on every detail sheet — a point
+    # beside ANY label of its room is beside its room (5.2.0).
+    labels_by_code: dict[str, list[tuple[int, float, float]]] = {}
+    for d in db.execute(select(DrawingSpace).where(
+            DrawingSpace.project_id == project.id)).scalars():
+        cc = M.canonical_code(d.space_code)
+        if cc and sh.of(d) not in key_pages:
+            labels_by_code.setdefault(cc, []).append((sh.of(d), d.x, d.y))
+    # The points a person dragged: they stay where the person put them.
+    hand_moved = set(db.execute(select(AuditLog.entity_id).where(
+        AuditLog.project_id == project.id, AuditLog.action == "element.moved")).scalars())
     seen: set[str] = set()
     for teap, match, ds in rows:
         if teap.space_key in seen or not in_scope(teap):
@@ -2536,6 +2556,40 @@ def _place_access_points_from_teap(db: Session, project: Project, *, actor: str)
         seen.add(teap.space_key)
         want = wifi_points_wanted(teap)
         have = tied.get(teap.space_key, [])
+        if have and ds is not None and not match.rejected and sh.of(ds) not in key_pages:
+            # The room of a space can change after its point was placed — a
+            # wrong match corrected on TEAP × drawing (Marcelo, 3 Nov 2026:
+            # five spaces' points stacked in one room because the matcher
+            # had tied five lines to it). A point this step placed and nobody
+            # dragged follows its space to the room it is tied to now; one a
+            # person dragged stays and is reported.
+            anchors = (labels_by_code.get(M.canonical_code(ds.space_code) or "")
+                       or [(sh.of(ds), ds.x, ds.y)])
+            for e in have:
+                if e.origin != "teap" or e.tie_source != "teap":
+                    continue
+                if any(sh.of(e) == pg and ((e.x - ax) ** 2 + (e.y - ay) ** 2) ** 0.5
+                       <= WIFI_BESIDE_ROOM for pg, ax, ay in anchors):
+                    continue
+                if e.id in hand_moved:
+                    totals["away_kept"] += 1
+                    totals["away_kept_names"].append(e.label)
+                    continue
+                old = occupied.get(sh.of(e), [])
+                if (e.x, e.y) in old:
+                    old.remove((e.x, e.y))
+                taken = occupied.setdefault(sh.of(ds), [])
+                x, y = free_wifi_slot(ds.x + TEAP_AP_OFFSET[0], ds.y + TEAP_AP_OFFSET[1], taken)
+                taken.append((x, y))
+                frm = {"page": sh.of(e), "x": e.x, "y": e.y}
+                e.drawing_id, e.page, e.x, e.y = ds.drawing_id, ds.page, x, y
+                audit(db, project.id, "wireless.followed_room", entity="element", entity_id=e.id,
+                      actor=actor, payload={"label": e.label, "space_key": teap.space_key,
+                                            "from": frm, "to": {"page": sh.of(ds), "x": x, "y": y}},
+                      justification="the space is tied to another room now; the point "
+                                    "this step placed (never dragged) follows it")
+                totals["moved_to_room"] += 1
+                totals["moved_names"].append(e.label)
         if len(have) > want:
             # More points than one per space — placed by a version before
             # 4.3.0 (one per DWISA unit), or a space whose DWISA line went
@@ -2590,8 +2644,11 @@ def _place_access_points_from_teap(db: Session, project: Project, *, actor: str)
         totals["spaces_placed"] += 1
     audit(db, project.id, "wireless.placed_from_teap", entity="project", entity_id=project.id,
           actor=actor, payload={k: v for k, v in totals.items()
-                                if k not in ("names", "removed_names")}
-          | {"names": totals["names"][:200], "removed_names": totals["removed_names"][:200]},
+                                if k not in ("names", "removed_names", "moved_names",
+                                             "away_kept_names")}
+          | {"names": totals["names"][:200], "removed_names": totals["removed_names"][:200],
+             "moved_names": totals["moved_names"][:200],
+             "away_kept_names": totals["away_kept_names"][:200]},
           justification="one Wi-Fi point for every matched space whose TEAP states "
                         "wireless (DWISA), drawn beside the room label, tied to the "
                         "space; not an access point count, no port of its own")

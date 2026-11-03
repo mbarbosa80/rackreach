@@ -392,7 +392,8 @@ def test_a_non_ner_reference_notice_promises_no_circles():
 
 def test_the_job_bar_does_not_stutter_when_the_stage_is_the_state():
     src = (SRC / "components" / "JobBar.tsx").read_text(encoding="utf-8")
-    assert "job.stage.toLowerCase() !== job.state" in src
+    # 5.2.0: the stage words that only repeat the state are listed.
+    assert '["finished", "done", "cancelled", job.state]' in src
     assert 't("Finished")' in src and 't("Working")' in src
 
 

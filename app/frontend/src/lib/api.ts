@@ -12,7 +12,7 @@ const BASE = "/api";
  * ``/healthz`` until it answers and flips it back (2.6.1).
  */
 export const SERVER_UNREACHABLE =
-  "the server is not answering — it is restarted automatically within about two minutes, and this page reconnects by itself";
+  "the server is not answering — it normally restarts by itself within about two minutes and this page reconnects; if it does not, run server-start.cmd in the tools folder of the installation (Windows) or mac/start.command (Mac)";
 let reachable = true;
 const listeners = new Set<(up: boolean) => void>();
 export function onConnection(cb: (up: boolean) => void): () => void {

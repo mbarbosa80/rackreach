@@ -186,16 +186,16 @@ if [ "$SERVICES" = "1" ]; then
         sleep 2; i=$((i + 1))
     done
     if [ "$up" = "1" ]; then
-        say "    the server answers on http://127.0.0.1:$PORT/"
+        say "    the server answers on http://localhost:$PORT/"
         cat > "$HOME/Desktop/NER Analyzer.webloc" 2>/dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<plist version="1.0"><dict><key>URL</key><string>http://127.0.0.1:$PORT/</string></dict></plist>
+<plist version="1.0"><dict><key>URL</key><string>http://localhost:$PORT/</string></dict></plist>
 EOF
-        open "http://127.0.0.1:$PORT/" 2>/dev/null || true
+        open "http://localhost:$PORT/" 2>/dev/null || true
     else
         say "    [!] the server did not answer within 90 s. It may still be starting:"
-        say "        open http://127.0.0.1:$PORT/ in a minute, or see $TARGET/data/server.log"
+        say "        open http://localhost:$PORT/ in a minute, or see $TARGET/data/server.log"
     fi
 else
     step "5/6" "Not starting anything (--no-services). Start it with mac/start.command."

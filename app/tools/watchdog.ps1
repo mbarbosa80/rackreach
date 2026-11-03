@@ -46,6 +46,16 @@ function Note([string]$m) {
   "{0}  {1}" -f (Get-Date -Format 'yyyy-MM-dd HH:mm:ss'), $m | Add-Content -Path $log
 }
 
+# --- an update in progress (5.2.1) ---------------------------------------------
+# setup.bat writes <folder>.updating while it replaces this folder. When the
+# watchdog's task belongs to an administrator, setup cannot disable it, and a
+# server started here mid-copy would hold files the update must move. Leave
+# the folder alone; a file older than 30 minutes is a setup that died.
+$updating = "$root.updating"
+if (Test-Path $updating) {
+  if (((Get-Date) - (Get-Item $updating).LastWriteTime).TotalMinutes -lt 30) { exit 0 }
+}
+
 # --- one run at a time --------------------------------------------------------
 # A run can last three minutes when the server has to be restarted; the task
 # fires every two. A second run probing while the first is still waiting for

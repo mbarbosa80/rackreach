@@ -294,6 +294,73 @@ def _page_detail_rank(drawing_spaces: Sequence[DetectedSpace],
     return rank
 
 
+def code_segments(code: Optional[str]) -> Optional[tuple[str, ...]]:
+    """``DOP.001.04-02`` -> ``("DOP", "1", "4", "2")``.
+
+    The TEAP and the design book write the same number with a different width:
+    the TEAP says ``DOP.001.02`` and the sheet prints ``DOP.001.002`` for the
+    same room (Marcelo, 3 Nov 2026 — every ``DOP.001.0x`` line was tied to
+    ``DOP.001.002`` because the text comparison never saw them as equal). A
+    numeric segment is therefore compared as a number; a segment with letters
+    is kept as written.
+    """
+    n = normalise_code(code)
+    if not n:
+        return None
+    out: list[str] = []
+    for i, part in enumerate(n.split(".")):
+        if not part:
+            continue
+        out.append(str(int(part)) if (i > 0 and part.isdigit()) else part)
+    return tuple(out) or None
+
+
+def canonical_code(code: Optional[str]) -> Optional[str]:
+    """``DOP.001.02`` and ``DOP.001.002`` -> ``DOP.1.2`` — one room, one key."""
+    seg = code_segments(code)
+    return ".".join(seg) if seg else None
+
+
+def _shared_segments(a: tuple[str, ...], b: tuple[str, ...]) -> int:
+    n = 0
+    for x, y in zip(a, b):
+        if x != y:
+            break
+        n += 1
+    return n
+
+
+def _room_key(ds: DetectedSpace, synonyms: dict[str, str]) -> str:
+    """What makes two labels the same room: the code. Without a code a name
+    says nothing about identity across labels — two "Storage" rooms are two
+    rooms — so a name-only label is its own room (its name and sheet)."""
+    cc = canonical_code(ds.space_code)
+    if cc:
+        return f"C:{cc}"
+    return f"N:{normalise_name(ds.name, synonyms)}@{ds.page}:{round(ds.x)}:{round(ds.y)}"
+
+
+#: Ranking tier of each method — a better method always outranks a worse one;
+#: within a tier, code depth, name, whether the room is already taken and the
+#: sheet decide (5.2.0).
+_TIER: dict[MatchMethod, int] = {
+    MatchMethod.ALIAS: 6, MatchMethod.EXACT_CODE: 5, MatchMethod.BASE_CODE: 4,
+    MatchMethod.EXACT_NAME: 3, MatchMethod.NORMALISED_NAME: 3, MatchMethod.SYNONYM: 2,
+    MatchMethod.FUZZY_NAME: 1, MatchMethod.CONTEXT: 0, MatchMethod.NONE: 0,
+}
+
+#: A code that only shares the family with the TEAP's (``SPT.016.03`` against
+#: ``SPT.016.01``) is a sibling room, weaker than one that contains or is
+#: contained by it (``DOP.001.04`` against ``DOP.001.004-001``).
+SIBLING_CODE_CONFIDENCE = 0.85
+#: Same number, written with a different width (``02`` / ``002``): the same
+#: code, signed like an exact one.
+PADDED_CODE_CONFIDENCE = 0.97
+#: A name this similar to the TEAP's counts as "the same name" when ranking
+#: rooms of one code family.
+STRONG_NAME = 0.85
+
+
 def match_spaces(teap_spaces: Sequence[tuple[str, Optional[str], str, Optional[str], Optional[str]]],
                  drawing_spaces: Sequence[DetectedSpace],
                  settings: Optional[MatchSettings] = None,
@@ -303,24 +370,34 @@ def match_spaces(teap_spaces: Sequence[tuple[str, Optional[str], str, Optional[s
     ``teap_spaces`` items are ``(key, space_code, space_name, building, level)``.
     ``demand_by_key`` is optional and only used to rank the review and exception
     lists by port count, so the biggest unresolved demand is at the top.
+
+    Two passes (5.2.0). The first finds every line's candidates. The rooms the
+    exact matches (code or curated alias) take are then known, and the second
+    pass ranks each remaining line's candidates by how deep its code agrees,
+    by name, and by whether another line already holds the room exactly — so
+    ``DOP.001.04`` "Processing Room" goes to the Processing Room no other line
+    claims, not to the first ``DOP.001.*`` on the list. A room may still serve
+    several lines; being taken only lowers it.
     """
     st = settings or MatchSettings()
     demand_by_key = demand_by_key or {}
     page_rank = _page_detail_rank(drawing_spaces, st) if st.prefer_detail_pages else {}
 
     by_code: dict[str, list[DetectedSpace]] = {}
-    by_base: dict[str, list[DetectedSpace]] = {}
+    by_family: dict[str, list[DetectedSpace]] = {}
     by_norm: dict[str, list[DetectedSpace]] = {}
+    norm_of: dict[int, str] = {}
     for ds in drawing_spaces:
-        nc = normalise_code(ds.space_code)
-        if nc:
-            by_code.setdefault(nc, []).append(ds)
-            bc = base_code(nc)
-            if bc:
-                by_base.setdefault(bc, []).append(ds)
-        nn = normalise_name(ds.name, st.synonyms)
-        if nn:
-            by_norm.setdefault(nn, []).append(ds)
+        cc = canonical_code(ds.space_code)
+        if cc:
+            by_code.setdefault(cc, []).append(ds)
+            seg = code_segments(ds.space_code) or ()
+            if len(seg) >= 2:
+                by_family.setdefault(".".join(seg[:2]), []).append(ds)
+        nn_ds = normalise_name(ds.name, st.synonyms)
+        norm_of[id(ds)] = nn_ds
+        if nn_ds:
+            by_norm.setdefault(nn_ds, []).append(ds)
 
     norm_choices = list(by_norm.keys())
     used_drawing: set[int] = set()
@@ -329,6 +406,9 @@ def match_spaces(teap_spaces: Sequence[tuple[str, Optional[str], str, Optional[s
     needs_review: list[SpaceMatch] = []
     placeholders: list[SpaceMatch] = []
 
+    # -- pass 1: candidates ----------------------------------------------------
+    staged: list[tuple[SpaceMatch, list[MatchCandidate], bool, str,
+                       Optional[tuple[str, ...]]]] = []
     for key, code, name, building, level in teap_spaces:
         sm = SpaceMatch(teap_key=key, teap_code=code, teap_name=name,
                         building=building, level=level)
@@ -346,17 +426,20 @@ def match_spaces(teap_spaces: Sequence[tuple[str, Optional[str], str, Optional[s
             placeholders.append(sm)
 
         cands: list[MatchCandidate] = []
-        nc, bc = (None, None) if placeholder else (normalise_code(code), base_code(code))
+        nc = None if placeholder else normalise_code(code)
+        seg = None if placeholder else code_segments(code)
+        cc = ".".join(seg) if seg else None
         nn = normalise_name(name, st.synonyms)
 
         # 0) curated alias — a human recorded this mapping, so it outranks everything
         alias_target = None
         if nc and st.code_aliases:
-            alias_target = st.code_aliases.get(nc) or st.code_aliases.get(str(code).strip().upper())
+            alias_target = (st.code_aliases.get(nc) or st.code_aliases.get(str(code).strip().upper())
+                            or st.code_aliases.get(cc or ""))
         if alias_target is None and st.name_aliases:
             alias_target = st.name_aliases.get(nn) or st.name_aliases.get(str(name).strip().lower())
         if alias_target:
-            target_code = normalise_code(alias_target)
+            target_code = canonical_code(alias_target)
             target_name = normalise_name(alias_target, st.synonyms)
             for ds in by_code.get(target_code or "", []) + by_norm.get(target_name, []):
                 cands.append(MatchCandidate(
@@ -364,18 +447,34 @@ def match_spaces(teap_spaces: Sequence[tuple[str, Optional[str], str, Optional[s
                     METHOD_BASE_CONFIDENCE[MatchMethod.ALIAS],
                     f"curated alias: '{code or name}' maps to '{alias_target}'"))
 
-        # 1) exact code
-        for ds in (by_code.get(nc or "", []) if not cands else []):
-            cands.append(MatchCandidate(ds, MatchMethod.EXACT_CODE, 100.0,
-                                        METHOD_BASE_CONFIDENCE[MatchMethod.EXACT_CODE],
-                                        f"space code {code} matches the drawing exactly"))
-        # 2) base code
-        if not cands and bc:
-            for ds in by_base.get(bc, []):
+        # 1) exact code — compared number by number, so 02 and 002 are one code
+        if not cands and cc:
+            for ds in by_code.get(cc, []):
+                same_text = normalise_code(ds.space_code) == nc
                 cands.append(MatchCandidate(
-                    ds, MatchMethod.BASE_CODE, 95.0,
-                    METHOD_BASE_CONFIDENCE[MatchMethod.BASE_CODE],
-                    f"base space code {bc} matches (sub-index differs: {code} vs {ds.space_code})"))
+                    ds, MatchMethod.EXACT_CODE, 100.0,
+                    METHOD_BASE_CONFIDENCE[MatchMethod.EXACT_CODE] if same_text
+                    else PADDED_CODE_CONFIDENCE,
+                    f"space code {code} matches the drawing exactly" if same_text
+                    else f"space code {code} is {ds.space_code} on the drawing — the same "
+                         f"number written with a different width"))
+        # 2) the code family — a room that contains, is contained by, or sits
+        #    beside the TEAP's room. Ranked in pass 2, never confirmed here.
+        if not cands and seg and len(seg) >= 2:
+            for ds in by_family.get(".".join(seg[:2]), []):
+                dseg = code_segments(ds.space_code) or ()
+                shared = _shared_segments(seg, dseg)
+                if shared >= len(seg):
+                    rel, conf = (f"the drawing divides {code} into {ds.space_code}",
+                                 METHOD_BASE_CONFIDENCE[MatchMethod.BASE_CODE])
+                elif shared >= len(dseg):
+                    rel, conf = (f"{code} is part of {ds.space_code} on the drawing",
+                                 METHOD_BASE_CONFIDENCE[MatchMethod.BASE_CODE])
+                else:
+                    rel, conf = (f"{ds.space_code} is a neighbouring code in the same "
+                                 f"family as {code}", SIBLING_CODE_CONFIDENCE)
+                cands.append(MatchCandidate(ds, MatchMethod.BASE_CODE,
+                                            float(shared), conf, rel))
         # 3) exact / normalised name
         if not cands and nn:
             for ds in by_norm.get(nn, []):
@@ -408,18 +507,9 @@ def match_spaces(teap_spaces: Sequence[tuple[str, Optional[str], str, Optional[s
 
         # -- context adjustment ------------------------------------------------
         for c in cands:
-            if level and c.drawing_space.page is not None:
-                pass  # level is validated downstream against the confirmed page level
             if building and c.drawing_space.name and building.lower() in c.drawing_space.name.lower():
                 c.confidence = min(0.99, c.confidence + 0.03)
                 c.reason += "; building context agrees"
-
-        # Rank by confidence, then by how detailed the candidate's sheet is. The
-        # page rank is what resolves a code printed on both a key plan and a level
-        # plan without asking a human.
-        cands.sort(key=lambda c: (c.confidence,
-                                  page_rank.get(c.drawing_space.page, 0.0),
-                                  c.score), reverse=True)
 
         if not cands:
             sm.exception = (
@@ -428,48 +518,122 @@ def match_spaces(teap_spaces: Sequence[tuple[str, Optional[str], str, Optional[s
                 else "no space on the drawings matches this TEAP location")
             unmatched.append(sm)
             continue
+        staged.append((sm, cands, placeholder, nn, seg))
 
+    # The rooms an exact answer holds — another line's weaker candidate for the
+    # same room is ranked below a room nobody holds.
+    claimed: dict[str, int] = {}
+    for i, (sm, cands, _ph, _nn, _seg) in enumerate(staged):
+        for c in cands:
+            if c.method in (MatchMethod.ALIAS, MatchMethod.EXACT_CODE):
+                claimed.setdefault(_room_key(c.drawing_space, st.synonyms), i)
+
+    name_sim_cache: dict[tuple[str, str], float] = {}
+
+    def name_sim(a: str, b: str) -> float:
+        if not a or not b:
+            return 0.0
+        k = (a, b)
+        if k not in name_sim_cache:
+            name_sim_cache[k] = fuzz.token_sort_ratio(a, b) / 100.0
+        return name_sim_cache[k]
+
+    # -- pass 2: rank and decide ----------------------------------------------
+    for i, (sm, cands, placeholder, nn, seg) in enumerate(staged):
+        exact_row = any(c.method in (MatchMethod.ALIAS, MatchMethod.EXACT_CODE) for c in cands)
+
+        def rank(c: MatchCandidate) -> tuple:
+            # Within the code family, in this order: the same NAME (a room the
+            # sheet calls what the TEAP calls it — measured on the reference
+            # books, a person chose it over a deeper code every time the two
+            # disagreed); how DEEP the code agrees; whether the room CONTAINS
+            # or is contained by the TEAP's (a neighbouring code is another
+            # room for certain, the family head or a subdivision may be this
+            # one); whether the room is FREE; then the sheet.
+            ds = c.drawing_space
+            rk = _room_key(ds, st.synonyms)
+            holder = claimed.get(rk)
+            free = holder is None or holder == i
+            ns = name_sim(nn, norm_of.get(id(ds), ""))
+            family = c.method == MatchMethod.BASE_CODE
+            shared = c.score if family else 0.0
+            contains = False
+            if family and seg:
+                dlen = len(code_segments(ds.space_code) or ())
+                contains = shared >= len(seg) or shared >= dlen
+            return (_TIER.get(c.method, 0), family and ns >= STRONG_NAME, shared, contains, free,
+                    c.confidence, ns, page_rank.get(ds.page, 0.0), c.score)
+
+        cands.sort(key=rank, reverse=True)
         sm.best = cands[0]
         sm.alternatives = cands[1:4]
+        if not exact_row:
+            # This line now holds its room too: the next line of the family
+            # with an equally good alternative goes to that one instead.
+            claimed.setdefault(_room_key(sm.best.drawing_space, st.synonyms), i)
+        if sm.best.method == MatchMethod.BASE_CODE:
+            ns = name_sim(nn, norm_of.get(id(sm.best.drawing_space), ""))
+            if ns >= STRONG_NAME:
+                sm.best.reason += "; the names agree"
+                deeper = next((c for c in cands if c.method == MatchMethod.BASE_CODE
+                               and c.score > sm.best.score), None)
+                if deeper is not None:
+                    sm.notes.append(
+                        f"the name points at {sm.best.drawing_space.space_code}, the code "
+                        f"goes deeper at {deeper.drawing_space.space_code} — check the sheet")
+            holder = claimed.get(_room_key(sm.best.drawing_space, st.synonyms))
+            if holder is not None and holder != i and staged[holder][0].best is not None:
+                sm.best.reason += (f"; that room is already tied to "
+                                   f"{staged[holder][0].teap_code or staged[holder][0].teap_name}")
         used_drawing.add(id(sm.best.drawing_space))
 
         pages = sorted({c.drawing_space.page for c in cands})
-        if len(cands) > 1 and (cands[0].confidence - cands[1].confidence) < st.ambiguity_margin:
-            top, runner = cands[0].drawing_space, cands[1].drawing_space
+        top = sm.best.drawing_space
+        top_key = _room_key(top, st.synonyms)
+        rivals = [c for c in cands[1:] if _room_key(c.drawing_space, st.synonyms) != top_key]
+        same_room = [c for c in cands if _room_key(c.drawing_space, st.synonyms) == top_key]
+
+        # A different room ranked just as high: a real question for a human.
+        ambiguous_room = False
+        if rivals:
+            r0, r1 = rank(sm.best), rank(rivals[0])
+            if sm.best.method == MatchMethod.BASE_CODE:
+                # Same depth, same name strength, both free or both taken, and
+                # names within 5 points of each other: nothing tells them apart.
+                ambiguous_room = (r0[:5] == r1[:5] and abs(r0[6] - r1[6]) < 0.05)
+            else:
+                ambiguous_room = (r0[0] == r1[0]
+                                  and (sm.best.confidence - rivals[0].confidence) < st.ambiguity_margin)
+        if ambiguous_room:
+            n_rooms = len({_room_key(c.drawing_space, st.synonyms) for c in cands})
+            sm.notes.append(
+                f"ambiguous: {n_rooms} rooms answer to this line and nothing tells them "
+                f"apart — check the sheet")
+            sm.best.confidence = min(sm.best.confidence, 0.70)
+        elif len(same_room) > 1:
+            # The same room labelled more than once — on one sheet, or on a key
+            # plan and a detail plan. Which LABEL, not which room.
+            runner = same_room[1].drawing_space
             best_rank = page_rank.get(top.page, 0.0)
             runner_rank = page_rank.get(runner.page, 0.0)
-            # Compare BASE codes, not full codes. A sub-index difference
-            # (PRS.006.02 against PRS.006.01) still means the same room family, and
-            # requiring an exact match here defeated the tie-break on 11 of the 19
-            # unresolved rooms on the reference venue.
-            same_room = (base_code(top.space_code) is not None
-                         and base_code(top.space_code) == base_code(runner.space_code))
-
-            if st.prefer_detail_pages and same_room and top.page == runner.page:
-                # The same room labelled more than once on ONE sheet. That is not a
-                # question about which sheet — it is a repeated tag. Prefer the
-                # instance carrying an area figure, which is the real room label.
-                same_page = [c for c in cands if c.drawing_space.page == top.page]
+            if st.prefer_detail_pages and top.page == runner.page:
+                same_page = [c for c in same_room if c.drawing_space.page == top.page]
                 labelled = next((c for c in same_page if c.drawing_space.area_label), None)
                 if labelled is not None and labelled is not sm.best:
                     sm.best = labelled
                 sm.notes.append(
                     f"the code is labelled {len(same_page)} times on {page_label(top.page)}; "
                     f"the instance carrying the room's area figure was used")
-            elif (st.prefer_detail_pages and same_room
-                  and runner_rank < best_rank * st.page_rank_margin):
-                # Same room drawn on more than one sheet: this is not ambiguity,
-                # it is how a design book is organised.
+            elif st.prefer_detail_pages and runner_rank < best_rank * st.page_rank_margin:
                 sm.best.reason += (f"; the same code appears on {pages_label(pages)} and "
                                    f"{page_label(top.page)} is the more detailed sheet, so it was "
                                    f"selected")
                 sm.notes.append(f"same code on {pages_label(pages)}; resolved to the detail sheet")
             else:
-                why = (f" on {pages_label(pages)}, none clearly more detailed"
-                       if len(pages) > 1 else "")
                 sm.notes.append(
-                    f"ambiguous: {len(cands)} candidates within "
-                    f"{st.ambiguity_margin:.0%} confidence{why}")
+                    f"ambiguous: {len(same_room)} candidates within "
+                    f"{st.ambiguity_margin:.0%} confidence on {pages_label(pages)}, "
+                    f"none clearly more detailed")
                 sm.best.confidence = min(sm.best.confidence, 0.70)
         elif len(pages) > 1:
             sm.notes.append(f"the same name/code appears on {pages_label(pages)}")

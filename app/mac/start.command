@@ -13,8 +13,8 @@ fi
 i=0
 while [ $i -lt 30 ]; do
     if curl -fsS "http://127.0.0.1:$PORT/healthz" >/dev/null 2>&1; then
-        echo "The server answers on http://127.0.0.1:$PORT/"
-        [ "${1:-}" = "--no-browser" ] || open "http://127.0.0.1:$PORT/" 2>/dev/null || true
+        echo "The server answers on http://localhost:$PORT/"
+        [ "${1:-}" = "--no-browser" ] || open "http://localhost:$PORT/" 2>/dev/null || true
         exit 0
     fi
     sleep 2; i=$((i + 1))

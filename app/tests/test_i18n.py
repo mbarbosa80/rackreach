@@ -97,6 +97,10 @@ def test_every_translated_server_message_still_exists_on_the_server():
 # Interface copy that happens to start lower case. Listed explicitly so the
 # test above stays strict about everything else.
 _INTERFACE_LOWER_CASE = {
+    # 5.2.0 — the worklist's warning on a decision an exact code contradicts
+    "check your choice",
+    "decided line(s) disagree with an exact code the sheet prints — marked ⚠ on the row.",
+    "the sheet prints this exact code on another room",
     # 5.0.0 — the composite map window and its card
     "here? Its marker moves on every sheet of this level that shows the spot; a sheet that does not show it any more loses the marker. You can undo it.",
     "drawn on", "not moved in book(s)", "is back where it was", "not placed", "left off",
@@ -292,7 +296,7 @@ _INTERFACE_LOWER_CASE = {
     "exact code, confirmed by the matcher", "your decisions — kept on every re-run",
     "show every row", "back to the matcher's answer",
     # 2.6.1 — the server down or restarting, seen from the browser
-    "the server is not answering — it is restarted automatically within about two minutes, and this page reconnects by itself",
+    "the server is not answering — it normally restarts by itself within about two minutes and this page reconnects; if it does not, run server-start.cmd in the tools folder of the installation (Windows) or mac/start.command (Mac)",
     "server not answering — reconnecting", "the server is back",
     "not on this drawing (rejected by you)",
     "recorded as served from another level ('other level' ticked): its ports "

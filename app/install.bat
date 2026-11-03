@@ -281,7 +281,7 @@ echo    Installed - version %VER%. Nothing was changed outside
 echo    this folder.
 echo.
 echo    Start the application:  double-click  start.bat
-echo    Then open               http://127.0.0.1:8000
+echo    Then open               http://localhost:8000
 echo.
 echo    The first person to open it creates the administrator
 echo    account. There is no default password.

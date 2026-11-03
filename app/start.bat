@@ -3,7 +3,7 @@ REM ===========================================================================
 REM  NER Spatial Coverage Analyzer - start the server in a console window.
 REM
 REM  The window IS the server: closing it stops the application. A browser
-REM  opens at http://127.0.0.1:8000 once it is up (20-40 s on a cold start).
+REM  opens at http://localhost:8000 once it is up (20-40 s on a cold start).
 REM
 REM    start.bat                 default port 8000
 REM    start.bat --port 8080     another port

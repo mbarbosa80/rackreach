@@ -1,5 +1,5 @@
 ===============================================================================
-  NER SPATIAL COVERAGE ANALYZER  -  version 5.1.2
+  NER SPATIAL COVERAGE ANALYZER  -  version 5.2.1
   Installation on a Windows computer
 ===============================================================================
 
@@ -16,7 +16,7 @@
   Open either in a browser; the application does not need to be running.
 
   ON A MAC (Apple Silicon, macOS 11 or later): the package is
-  ner-analyzer-5.1.2-macos-arm64.zip. Unzip it, open Terminal, type "bash "
+  ner-analyzer-5.2.1-macos-arm64.zip. Unzip it, open Terminal, type "bash "
   and drag setup.command into the window, press Return. No administrator
   password. Details: docs/INSTALL.html, section "Installing on a Mac".
 
@@ -47,7 +47,7 @@
          %LOCALAPPDATA%\Programs\ner-analyzer
      (that is C:\Users\<you>\AppData\Local\Programs\ner-analyzer),
      registers the sign-in task and the watchdog, starts the server, opens
-     the browser at http://127.0.0.1:8000, puts an "NER Analyzer" shortcut
+     the browser at http://localhost:8000, puts an "NER Analyzer" shortcut
      on the desktop and then DELETES the installation files: the unzipped
      folder and the zip itself. Only the application is left, running.
 

@@ -128,7 +128,7 @@ EXCLUDE_FILES = {"nul", "pytest-full.txt", "npm-install.log", "uitest.mjs", ".DS
 SHIP_TOOLS = {
     "serve.py", "server-start.cmd", "server-stop.cmd", "server-stop.ps1",
     "watchdog.ps1", "watchdog-install.ps1", "watchdog-hidden.vbs", "task-harden.ps1",
-    "signin-task.ps1",
+    "signin-task.ps1", "task-check.ps1", "task-share.ps1",
     "backup.py", "reset_password.py", "check_env.py", "check_title_blocks.py", "validate_against.py",
     "probe_sheet_numbers.py", "profile_report.py", "make_package.py",
 }
@@ -213,6 +213,8 @@ REQUIRED = (
     "tools/serve.py", "tools/server-start.cmd", "tools/server-stop.cmd",
     # autostart.bat cannot register the sign-in task without it (2.16.1).
     "tools/signin-task.ps1", "tools/watchdog-install.ps1",
+    # setup.bat and autostart.bat read and share the tasks with them (5.2.1).
+    "tools/task-check.ps1", "tools/task-share.ps1",
     # the way back in for a forgotten password (4.0.0)
     "tools/reset_password.py",
 )

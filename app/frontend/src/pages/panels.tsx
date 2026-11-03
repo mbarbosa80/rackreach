@@ -190,32 +190,6 @@ export function ProjectsPanel({ ctx }: { ctx: Ctx }) {
       </div>
 
       <div className="card">
-        <h2>{t("Import a project package")}</h2>
-        <p className="muted small" style={{ marginTop: 0 }}>
-          {t("A package is a .zip written by Export on another computer: the drawings, the TEAP and every decision of the project — scales, key plans, NERs, matches, ties, Wi-Fi points, areas. It comes in as a new project of yours, private until you share it; the analysis is run again here. The original is not touched and nothing is kept in step between the two copies.")}
-        </p>
-        <div className="row">
-          <div style={{ flex: 2 }}>
-            <label>{t("Name for the imported project (optional)")}</label>
-            <input value={importName} onChange={(e) => setImportName(e.target.value)}
-                   placeholder={t("the name it had — with “(imported …)” if taken here")} />
-          </div>
-          <div style={{ flex: 2 }}>
-            <label>{t("Package (.zip)")}</label>
-            <input type="file" accept=".zip,application/zip" disabled={xfer.busy}
-                   onChange={(e) => {
-                     const f = e.target.files?.[0];
-                     e.target.value = "";
-                     if (f) void importPackage(f);
-                   }} />
-          </div>
-        </div>
-        <div style={{ marginTop: 10 }}>
-          <JobBar job={xfer.job} onCancel={xfer.cancel} onDismiss={xfer.clear} />
-        </div>
-      </div>
-
-      <div className="card">
         <h2>{t("Projects")}</h2>
         <table>
           <thead>
@@ -288,6 +262,34 @@ export function ProjectsPanel({ ctx }: { ctx: Ctx }) {
           </tbody>
         </table>
       </div>
+      <div className="card">
+        {/* Below the list (5.2.0): the list is what is opened every day; a
+            package comes in now and then. */}
+        <h2>{t("Import a project package")}</h2>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          {t("A package is a .zip written by Export on another computer: the drawings, the TEAP and every decision of the project — scales, key plans, NERs, matches, ties, Wi-Fi points, areas. It comes in as a new project of yours, private until you share it; the analysis is run again here. The original is not touched and nothing is kept in step between the two copies.")}
+        </p>
+        <div className="row">
+          <div style={{ flex: 2 }}>
+            <label>{t("Name for the imported project (optional)")}</label>
+            <input value={importName} onChange={(e) => setImportName(e.target.value)}
+                   placeholder={t("the name it had — with “(imported …)” if taken here")} />
+          </div>
+          <div style={{ flex: 2 }}>
+            <label>{t("Package (.zip)")}</label>
+            <input type="file" accept=".zip,application/zip" disabled={xfer.busy}
+                   onChange={(e) => {
+                     const f = e.target.files?.[0];
+                     e.target.value = "";
+                     if (f) void importPackage(f);
+                   }} />
+          </div>
+        </div>
+        <div style={{ marginTop: 10 }}>
+          <JobBar job={xfer.job} onCancel={xfer.cancel} onDismiss={xfer.clear} />
+        </div>
+      </div>
+
     </>
   );
 }
@@ -767,13 +769,6 @@ export function ScalePanel({ ctx }: { ctx: Ctx }) {
   // re-renders the disabled button. Declared above the early return (4.6.1):
   // below it the screen called three hooks more once a project was open.
   const placingNersRef = useRef(false);
-  const [placingAps, setPlacingAps] = useState(false);
-  const placingApsRef = useRef(false);
-  // Wi-Fi points that sit on top of each other (4.8.0), counted for the
-  // Spread button. Above the early return, like the hooks before it.
-  const { data: stacked, reload: reloadStacked } = useAsync(
-    () => (p ? api.stackedWifi(p.id) : Promise.resolve(null)), [p?.id], null as any);
-  const [spreading, setSpreading] = useState(false);
   useEffect(() => { setTicks({}); }, [p?.id]);
   if (!p) return null;
 
@@ -825,48 +820,6 @@ export function ScalePanel({ ctx }: { ctx: Ctx }) {
         ctx.notify(`${r.created ?? 0} ${t("NER(s) placed")} (${r.annotations ?? 0} ${t("from the team's annotations")}, ${r.rooms_found ?? 0} ${t("NER room(s) read")}, ${r.same_as_marker ?? 0} ${t("already had a NER beside them")}). ${t("Check them in the Drawing viewer and on the NERs screen; delete any duplicate there.")}`);
       });
     } catch (e: any) { ctx.notify(e.message, "err"); }
-  };
-
-  // The AP placing step (2.19.0). Marcelo, 14 Oct 2026: "desenhar nos VDB o
-  // AP nos espaços que já sabemos que tem wifi, assim como fazemos com as
-  // NERs … só para facilitar os espaços que já conhecemos".
-  const placeAps = async () => {
-    if (placingApsRef.current) return;
-    placingApsRef.current = true;
-    try { await placeApsOnce(); } finally { placingApsRef.current = false; }
-  };
-  const placeApsOnce = async () => {
-    const q = t("Mark the spaces the TEAP says have wireless? One Wi-Fi point for every TEAP space with a DWISA line whose room is on a drawing, beside the room's label and tied to that space. It marks the space, it is not an access point count, and it adds no port — the DWISA line stays the space's wireless port. Never on a key plan; spaces with no room on the drawing get nothing and stay pending. Running it again only adds what is missing and takes back extra points it placed.");
-    if (!confirm(q)) return;
-    setPlacingAps(true);
-    try {
-      const r = await api.placeAccessPoints(p.id);
-      await ctx.reload();
-      const parts = [`${r.placed ?? 0} ${t("Wi-Fi point(s) placed in")} ${r.spaces_placed ?? 0} ${t("space(s)")}`];
-      if (r.already_had_points) parts.push(`${r.already_had_points} ${t("space(s) already had their Wi-Fi point")}`);
-      if (r.removed_extra) parts.push(`${r.removed_extra} ${t("extra Wi-Fi point(s) taken back (one per space)")}`);
-      if (r.extra_by_hand) parts.push(`${r.extra_by_hand} ${t("Wi-Fi point(s) drawn by hand beyond one per space — kept, check them")}`);
-      if (r.no_room) parts.push(`${r.no_room} ${t("space(s) request wireless but have no room on the drawing — left pending")}${r.unplaced_spaces?.length ? ` (${r.unplaced_spaces.slice(0, 6).join(", ")}${r.unplaced_spaces.length > 6 ? ", …" : ""})` : ""}`);
-      if (r.on_key_plan) parts.push(`${r.on_key_plan} ${t("space(s) sit on a key plan")}`);
-      if (r.deleted_by_you) parts.push(`${r.deleted_by_you} ${t("space(s) whose Wi-Fi point you deleted — left without one")}`);
-      ctx.notify(`${parts.join("; ")}. ${t("Check them in the Drawing viewer; drag a point if it sits on something you need to read.")}`);
-    } catch (e: any) { ctx.notify(e.message, "err"); }
-    finally { setPlacingAps(false); reloadStacked(); }
-  };
-
-  // Spread the Wi-Fi points that sit on top of each other (4.8.0).
-  const spreadWifi = async () => {
-    if (spreading || !stacked?.to_move) return;
-    if (!confirm(`${t("Spread the Wi-Fi points that sit on top of each other?")} ` +
-                 `${stacked.points} ${t("point(s) in")} ${stacked.stacks} ${t("stack(s)")}: ` +
-                 t("the oldest point of each stack stays where it is and the others move beside it, in rows of four. Ties, the NER chosen and indoor/outdoor go with each point; every move is in the audit log."))) return;
-    setSpreading(true);
-    try {
-      const r = await api.spreadWifi(p.id);
-      await ctx.reload();
-      ctx.notify(`${r.moved ?? 0} ${t("Wi-Fi point(s) moved out of")} ${r.stacks ?? 0} ${t("stack(s)")}. ${t("Run analysis to measure them from where they are now.")}`);
-    } catch (e: any) { ctx.notify(e.message, "err"); }
-    finally { setSpreading(false); reloadStacked(); }
   };
 
   const apply = async (page: number, confirm: boolean) => {
@@ -1021,32 +974,8 @@ export function ScalePanel({ ctx }: { ctx: Ctx }) {
       </div>
     </div>
 
-    {/* The AP placing step (2.19.0). */}
-    <div className="card">
-      <h2>{t("Wi-Fi from the TEAP")}</h2>
-      <p className="muted small" style={{ marginTop: 0 }}>
-        {t("The spaces the TEAP says have wireless (a DWISA line), marked with one Wi-Fi point each where their rooms are, beside the room's label, tied to that space. A Wi-Fi point says the space has wireless; it is not an access point count — the quantity stays on the DWISA line and the number of APs comes from the wireless design. It adds no port: the DWISA line stays the space's wireless port, counted on the NER that serves the space. The distance to the NER is checked from where the point is drawn. Never on a key plan; a space with no room on the drawing gets nothing and stays pending — tie its room first on TEAP × drawing. Running it again never duplicates: it adds only what is missing and takes back extra points it placed itself; points you drew are never removed.")}
-      </p>
-      <div className="row" style={{ alignItems: "center" }}>
-        <button className="primary" disabled={placingAps || !(p.drawings || []).length} onClick={placeAps}>
-          {placingAps ? t("Placing…") : t("Place Wi-Fi from the TEAP")}
-        </button>
-        {/* Points placed before 4.8.0 for several TEAP lines of one room
-            sit on top of each other; this puts them side by side. */}
-        <button disabled={spreading || !stacked?.to_move} onClick={spreadWifi}
-                title={t("Move the Wi-Fi points that sit on top of each other into a grid beside the oldest one")}>
-          {spreading ? t("Spreading…") : `${t("Spread stacked Wi-Fi points")}${stacked?.to_move ? ` (${stacked.to_move})` : ""}`}
-        </button>
-        <span className="small muted" style={{ marginBottom: 0 }}>
-          {stacked?.to_move
-            ? `${stacked.points} ${t("point(s) sit on top of another one, in")} ${stacked.stacks} ${t("stack(s)")}`
-            : t("no Wi-Fi point sits on top of another one")}
-        </span>
-      </div>
-      <p className="muted small" style={{ marginBottom: 0 }}>
-        {t("A Wi-Fi point you delete stays deleted: running this step again leaves its space without one. Draw a point with +Wi-Fi for the space, or tie one to it, to bring it back.")}
-      </p>
-    </div>
+    {/* "Wi-Fi from the TEAP" was here until 5.2.0: it depends on the TEAP ×
+        drawing ties, so it is its own step now, after Demand per space. */}
     </>
   );
 }
@@ -1138,25 +1067,97 @@ const TILE_ROWS: [TileKey, string, (m: any) => boolean][] = [
  * shows; the whole list is built when the pointer reaches the select or the
  * keyboard focuses it, and let go again when it leaves.
  */
-function SpaceSelect({ value, current, currentLabel, noneLabel, options, project, onChoose }: {
+/** ``DOP.001.04-02`` -> ``["DOP", "1", "4", "2"]``: a number compared as a
+ *  number, so the TEAP's ``02`` and the sheet's ``002`` are one segment
+ *  (5.2.0, the same rule as the matcher's ``code_segments``). */
+export function codeSegments(code: any): string[] | null {
+  if (!code) return null;
+  const parts = String(code).trim().toUpperCase().replace(/-/g, ".").split(".").filter(Boolean);
+  if (!parts.length) return null;
+  return parts.map((x, i) => (i > 0 && /^\d+$/.test(x) ? String(parseInt(x, 10)) : x));
+}
+
+function nameTokens(v: any): Set<string> {
+  return new Set(fold(v).replace(/\b[a-z]{2,4}\.\d[\d.\-]*/g, " ")
+    .split(/[^a-z0-9]+/).filter((x) => x.length > 1));
+}
+
+/** How alike two room names are, 0..1 (shared words over all words). */
+export function nameLikeness(a: any, b: any): number {
+  const x = nameTokens(a), y = nameTokens(b);
+  if (!x.size || !y.size) return 0;
+  let n = 0;
+  x.forEach((w) => { if (y.has(w)) n += 1; });
+  return (2 * n) / (x.size + y.size);
+}
+
+/**
+ * The rooms most likely to be this TEAP line's, best first (5.2.0) — shown at
+ * the top of the room list so the right one is a click away instead of a
+ * scroll through hundreds. Ranked by how many code segments agree (number by
+ * number), then by name; the matcher's own alternatives get a nudge. Never a
+ * decision: the person still picks.
+ */
+export function suggestRooms(m: any, spaces: any[], limit = 6): any[] {
+  const seg = codeSegments(m.teap_code);
+  const alt = new Set((m.alternatives || []).map((a: any) => a.drawing_space_id));
+  const scored: { s: any; score: number }[] = [];
+  for (const sp of spaces || []) {
+    const ds = codeSegments(sp.space_code);
+    let shared = 0;
+    if (seg && ds && seg[0] === ds[0]) {
+      while (shared < seg.length && shared < ds.length && seg[shared] === ds[shared]) shared += 1;
+    }
+    const nl = nameLikeness(m.teap_name, sp.name);
+    if (shared < 2 && nl < 0.5) continue;
+    const exact = !!seg && !!ds && shared === seg.length && shared === ds.length;
+    const score = (exact ? 100 : 0) + (shared >= 2 ? shared * 10 : 0) + nl * 8
+      + (alt.has(sp.id) ? 2 : 0);
+    scored.push({ s: sp, score });
+  }
+  scored.sort((a, b) => b.score - a.score
+    || SPACE_COLLATOR.compare(String(a.s.space_code || a.s.name), String(b.s.space_code || b.s.name)));
+  return scored.slice(0, limit).map((x) => x.s);
+}
+
+function SpaceSelect({ value, current, currentLabel, noneLabel, options, project, onChoose,
+                       suggest }: {
   value: number | null; current?: any; currentLabel?: string; noneLabel: string;
   options: { key: number; label: string }[]; project: any;
   onChoose: (id: number | null) => void;
+  /** The likely rooms, computed only when the list is opened. */
+  suggest?: () => any[];
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLSelectElement>(null);
   const shown = current ? spaceLabel(current, project) : (currentLabel || "");
+  const sugg = useMemo(() => (open && suggest ? suggest() : []), [open]);  // eslint-disable-line react-hooks/exhaustive-deps
+  // The list is filled only while the pointer is on it (a select per row, each
+  // with every room); its WIDTH is fixed by the cell (5.2.0), so filling it no
+  // longer widens the column and shakes the table.
   return (
-    <select ref={ref} value={value ?? ""} style={{ flex: 1, minWidth: 0 }}
+    <select ref={ref} value={value ?? ""} style={{ flex: 1, minWidth: 0, width: "100%" }}
+            title={shown}
             onMouseEnter={() => setOpen(true)} onFocus={() => setOpen(true)}
             onMouseDown={() => setOpen(true)} onTouchStart={() => setOpen(true)}
             onMouseLeave={() => { if (document.activeElement !== ref.current) setOpen(false); }}
             onBlur={() => setOpen(false)}
             onChange={(e) => { onChoose(e.target.value ? Number(e.target.value) : null); }}>
       <option value="">{noneLabel}</option>
-      {open
-        ? options.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)
-        : (value ? <option value={value}>{shown}</option> : null)}
+      {open ? (
+        <>
+          {sugg.length > 0 && (
+            <optgroup label={t("Suggested — closest code and name")}>
+              {sugg.map((x: any) => (
+                <option key={`s${x.id}`} value={x.id}>{spaceLabel(x, project)}</option>
+              ))}
+            </optgroup>
+          )}
+          <optgroup label={t("Every room, A–Z")}>
+            {options.map((o) => <option key={o.key} value={o.key}>{o.label}</option>)}
+          </optgroup>
+        </>
+      ) : (value ? <option value={value}>{shown}</option> : null)}
     </select>
   );
 }
@@ -1203,11 +1204,31 @@ export function MatchingPanel({ ctx }: { ctx: Ctx }) {
   //  by the matcher (an exact match), by you, or set to — none — by you.
   //  Marcelo, 22 Oct 2026: "eu deveria gastar meu tempo só olhando para
   //  aqueles que realmente precisam de atenção".
+  //: The order is taken once and then held (5.2.0). It used to be recomputed
+  //  on every reload, so a Confirm or a room chosen sent the row to the end
+  //  and pulled every row below it up under the pointer — the next click
+  //  landed on the wrong select. It is taken again on Run matching, on a
+  //  tile, and on Re-sort; a row that leaves the tile's filter stays until
+  //  then too.
+  const [orderNonce, setOrderNonce] = useState(0);
+  const [frozen, setFrozen] = useState<{ key: string; ids: number[] } | null>(null);
+  const orderKey = `${p?.id}|${tile}|${orderNonce}`;
   const rows = useMemo(() => {
     const pred = TILE_ROWS.find(([k]) => k === tile)![2];
+    if (frozen && frozen.key === orderKey) {
+      const pos = new Map(frozen.ids.map((id, i) => [id, i]));
+      return matches.filter((m: any) => pred(m) || pos.has(m.id)).sort((a: any, b: any) =>
+        (pos.get(a.id) ?? 1e9) - (pos.get(b.id) ?? 1e9)
+        || Number(isSettled(a)) - Number(isSettled(b)) || (b.ports || 0) - (a.ports || 0));
+    }
     return matches.filter(pred).sort((a, b) =>
       Number(isSettled(a)) - Number(isSettled(b)) || (b.ports || 0) - (a.ports || 0));
-  }, [matches, tile]);
+  }, [matches, tile, frozen, orderKey]);
+  useEffect(() => {
+    if (matches.length && (!frozen || frozen.key !== orderKey)) {
+      setFrozen({ key: orderKey, ids: rows.map((m: any) => m.id) });
+    }
+  }, [matches, orderKey]);  // eslint-disable-line react-hooks/exhaustive-deps
   const unresolved = rows.filter((m) => !m.drawing_space_id);
   // A row set to "— none —" is a decision already taken: it is not waiting.
   const pendingPorts = rows
@@ -1279,6 +1300,7 @@ export function MatchingPanel({ ctx }: { ctx: Ctx }) {
   //: Matched rows nobody has signed off yet — said in a line, not a fourth
   //  button: the row's own Confirm is where it is settled.
   const awaitingConfirm = matches.filter((m) => inStudy(m) && hasRoom(m) && !m.confirmed).length;
+  const exactElsewhere = matches.filter((m) => inStudy(m) && m.exact_elsewhere).length;
   const zeroCount = matches.filter((m) => !inStudy(m)).length;
   const tileLabel = TILE_ROWS.find(([k]) => k === tile)![1];
 
@@ -1287,7 +1309,7 @@ export function MatchingPanel({ ctx }: { ctx: Ctx }) {
       <div className="card">
         <h2>{t("TEAP × drawing matching")}</h2>
         <p className="muted small" style={{ marginTop: 0 }}>
-          {t("Order: exact space code → base code → exact name → normalised name → synonyms → text similarity → building/level context. Low-confidence and ambiguous results are never confirmed silently — each one is yours to check against the sheet.")}
+          {t("Order: exact space code, read number by number (02 = 002) → the code family (same name first, then the deeper code, then the room that contains the line, then a room no other line holds) → exact name → normalised name → synonyms → text similarity → building/level context. Low-confidence and ambiguous results are never confirmed silently — each one is yours to check against the sheet.")}
         </p>
         <p className="muted small" style={{ marginTop: 0 }}>
           {t("The TEAP rules. The check runs from the TEAP to the drawing, never the other way round: a room on the drawing that no TEAP line asks for is not listed and not a finding. A TEAP line the matcher could not place is yours to tie by hand to any room on the drawing.")}
@@ -1300,6 +1322,7 @@ export function MatchingPanel({ ctx }: { ctx: Ctx }) {
                 if (j.state !== "done") return;
                 const r = j.result;
                 await reloadAll();
+                setOrderNonce((n) => n + 1);
                 const kept = r.stats.decisions_kept || 0;
                 const lost = r.stats.decisions_released_room_gone || 0;
                 ctx.notify(
@@ -1335,6 +1358,7 @@ export function MatchingPanel({ ctx }: { ctx: Ctx }) {
         <p className="muted small" style={{ marginBottom: 0 }}>
           {t("matched + no room found = TEAP spaces. Matched counts every line with a room, whether the matcher or you tied it; no room found counts every line without one, whether the matcher found none or you chose — none —. Each row says who decided.")}
           {awaitingConfirm > 0 && <> {awaitingConfirm} {t("matched line(s) still await your Confirm.")}</>}
+          {exactElsewhere > 0 && <span style={{ color: "var(--warn)" }}> {exactElsewhere} {t("decided line(s) disagree with an exact code the sheet prints — marked ⚠ on the row.")}</span>}
           {zeroCount > 0 && <> {zeroCount} {t("TEAP space(s) with no ports are outside the study and not counted.")}</>}
         </p>
       </div>
@@ -1348,6 +1372,9 @@ export function MatchingPanel({ ctx }: { ctx: Ctx }) {
           </p>
         )}
         <p className="muted small" style={{ marginTop: 0 }}>
+          <button type="button" className="small" style={{ marginRight: 8 }}
+                  title={t("The rows keep their place while you work, so nothing moves under the pointer. This puts the rows that still need a look back on top.")}
+                  onClick={() => setOrderNonce((n) => n + 1)}>{t("Re-sort")}</button>
           {rows.length} {t("row(s)")}, {unresolved.length} {t("with no room chosen yet")},
           {" "}{pendingPorts.toFixed(0)} {t("ports still awaiting a decision")}.{" "}
           {t("The list is not restricted by name similarity: pick whichever room on the sheet is the right one, however differently it is named. A line with no room chosen stays on the list and is reported as an exception.")}
@@ -1371,13 +1398,14 @@ export function MatchingPanel({ ctx }: { ctx: Ctx }) {
                   <td><strong>{m.ports ?? "—"}</strong></td>
                   <td className="mono">{m.teap_code || "—"}</td>
                   <td>{m.teap_name}</td>
-                  <td style={{ minWidth: 210 }}>
+                  <td className="space-cell">
                     <div style={{ display: "flex", alignItems: "center" }}>
                     <SpaceSelect value={m.drawing_space_id || null}
                                  current={spaceById.get(m.drawing_space_id)}
                                  currentLabel={m.drawing_name}
                                  noneLabel={m.locked === "rejected" ? t("— none (your choice) —") : t("— none —")}
                                  options={spaceOptions} project={p}
+                                 suggest={() => suggestRooms(m, spaces)}
                                  onChoose={(id) => choose(m, id)} />
                     {/* — none — in one click (4.4.0): it sits at the very top
                         of a list of hundreds of rooms, and getting back up
@@ -1397,28 +1425,20 @@ export function MatchingPanel({ ctx }: { ctx: Ctx }) {
                         {t("no ports requested in the TEAP — not part of the study")}
                       </div>
                     )}
-                    {/* Says, on the row itself, that this is a decision and not
-                        the matcher's guess — so it is visible that re-running
-                        will leave it alone. */}
-                    {m.locked === "assigned" && (
-                      <div className="small" style={{ color: "var(--ok)", marginTop: 2 }}>
-                        ✓ {t("your choice — saved, and kept when the matching re-runs")}
-                      </div>
-                    )}
-                    {m.locked === "rejected" && (
-                      <div className="small" style={{ color: "var(--warn)", marginTop: 2 }}>
-                        {t("you said this space is not on this drawing — kept when the matching re-runs; Undo takes it back")}
-                      </div>
-                    )}
-                    {/* The matcher signed this one itself: an exact code with
-                        no rival. Said on the row, so "confirmed" is never read
-                        as "confirmed by me". */}
-                    {!m.locked && m.confirmed && m.drawing_space_id && (
-                      <div className="small muted" style={{ marginTop: 2 }}>
-                        {m.method === "exact_name" ? t("identical name, confirmed by the matcher")
-                          : t("exact code, confirmed by the matcher")}
-                      </div>
-                    )}
+                    {/* Who decided, on one line that is always there (5.2.0) — a
+                        line that appeared after a choice made the row taller
+                        and moved every row below it. */}
+                    {(() => {
+                      const [txt, colour] =
+                        m.exact_elsewhere ? [`⚠ ${t("the sheet prints this exact code on another room")}: ${m.exact_elsewhere} — ${t("check your choice")}`, "var(--warn)"]
+                        : m.locked === "assigned" ? [`✓ ${t("your choice — saved, and kept when the matching re-runs")}`, "var(--ok)"]
+                        : m.locked === "rejected" ? [t("you said this space is not on this drawing — kept when the matching re-runs; Undo takes it back"), "var(--warn)"]
+                        : (m.confirmed && m.drawing_space_id)
+                          ? [m.method === "exact_name" ? t("identical name, confirmed by the matcher")
+                             : t("exact code, confirmed by the matcher"), "var(--muted)"]
+                        : ["", undefined];
+                      return <div className="small row-status" style={{ color: colour }} title={txt}>{txt}</div>;
+                    })()}
                   </td>
                   <td>
                     {(() => {
@@ -1705,8 +1725,6 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
   const [allNotes, setAllNotes] = useState(false);
   //: TEAP spaces that request no port are left off this screen; this shows them.
   const [showZero, setShowZero] = useState(false);
-  const [showWireless, setShowWireless] = useState(true);
-  const sw2 = useSort<any>();
   const job = useJob();
   const { data: allSpaces, reload } = useAsync(
     () => (p ? api.teapSpaces(p.id) : Promise.resolve([])), [p?.id], [] as any[]);
@@ -1735,50 +1753,6 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
   const summary = (pins as any).summary;
   const nerLoad: any[] = (pins as any).ner_load || [];
   const wirelessPoints: any[] = (pins as any).wireless_points || [];
-
-  /** A wireless point placed by mistake, removed from the list that counts it. */
-  const deleteWireless = async (w: any) => {
-    if (!confirm(`${t("Delete")} ${w.label} (${pageName(p!, w.page)})?`)) return;
-    try {
-      await api.deleteElement(p!.id, w.id);
-      await reloadPins();
-      ctx.notify(`${w.label} ${t("deleted from the drawing")}. ${t("Re-run the analysis to see the effect.")}`);
-    } catch (e: any) { ctx.notify(e.message, "err"); }
-  };
-
-  /** Indoor (covered) or outdoor (open) for one Wi-Fi point (4.5.0) — a
-   *  note for the LLD team, the same field a NER has. No re-run needed: the
-   *  workbook reads it off the point when it is exported. */
-  const setWirelessEnvironment = async (w: any, env: string) => {
-    try {
-      await api.patchElement(p!.id, w.id, { environment: env });
-      await reloadPins();
-    } catch (e: any) { ctx.notify(e.message, "err"); }
-  };
-
-  /** Choose (or release) the NER for one wireless point. */
-  const serveWireless = async (w: any, nerAssetId: number | null) => {
-    try {
-      await api.serveWireless(p!.id, w.id, { ner_asset_id: nerAssetId,
-        justification: nerAssetId ? "chosen for the wireless point" : "released" });
-      await reloadPins();
-      ctx.notify(nerAssetId
-        ? `${w.label}: ${t("assigned. Re-run the analysis to see the effect.")}`
-        : `${w.label}: ${t("released. Re-run the analysis to see the effect.")}`);
-    } catch (e: any) { ctx.notify(e.message, "err"); }
-  };
-  /** The first option of a point's select: what it follows with no choice of its own. */
-  const wirelessPlaceholder = (w: any) => {
-    if (w.assigned_ner_asset_id) return w.space_ner
-      ? `${t("✕ clear my choice — back to its TEAP space's NER")}: ${w.space_ner}`
-      : t("✕ clear my choice — back to the nearest NER rule");
-    if (w.space_ner) return `${t("as its TEAP space")}: ${w.space_ner}`;
-    if (w.serving_ner) return `${t("nearest:")} ${w.serving_ner}`;
-    if (!w.status) return t("— not analysed yet —");
-    return w.nearest_ner
-      ? `${t("— none within")} ${w.limit_m ?? p!.settings.general_limit_m} m · ${t("nearest")}: ${w.nearest_ner}`
-      : t("— nothing reaches it: choose the NER —");
-  };
 
   /** "Is the label on that other page the same space?" — one row at a time. */
   const decideOccurrence = async (linkId: number, verdict: string) => {
@@ -1923,10 +1897,11 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
           {counter("x:photographer", spaces.filter((s) => s.demand_type === "photographer").length, "photographer areas")}
           {counter("x:chosen", (pins as any).pinned || 0, "rooms chosen by you")}
           {wirelessPoints.length > 0 && (
-            <div className="stat" title={t("Wireless points drawn in the Drawing viewer — one port each on the NER that reaches them")}>
+            <button type="button" className="stat tile" onClick={() => ctx.go("wifi")}
+                    title={t("The Wi-Fi points have their own step now — click to open it")}>
               <div className="n" style={{ color: "#0096c7" }}>{wirelessPoints.length}</div>
-              <div className="k">{t("wireless points")}</div>
-            </div>
+              <div className="k">{t("Wi-Fi points")} →</div>
+            </button>
           )}
           {(() => {
             const n = spaces.filter((s) => EXTRA_FILTERS["x:unconfirmed"](s, info[s.space_key] || {})).length;
@@ -2201,79 +2176,6 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
           </table>
         </WideScroll>
       </div>
-
-      {wirelessPoints.length > 0 && (
-        <div className="card">
-          <h2 style={{ cursor: "pointer" }} onClick={() => setShowWireless((v) => !v)}>
-            {showWireless ? "▾" : "▸"} {t("Wireless points")} ({wirelessPoints.length})
-          </h2>
-          <p className="muted small" style={{ margin: 0 }}>
-            {t("A point placed by mistake is deleted here or in the Drawing viewer.")}{" "}
-            {t("Placed from the TEAP on the Scale screen (one per space with wireless), or drawn by hand in the Drawing viewer (+Wi-Fi). A Wi-Fi point marks a space that has wireless; it is not an access point count and takes no port. The wireless port is the DWISA line of its TEAP space, counted on that space's row and on the NER that serves the space. Each point is measured to the NER of its space (or the nearest within the general limit) so the 90 m rule is checked where the point is drawn; a point with no NER within reach is listed as an exception.")}
-          </p>
-          {showWireless && (
-            <table style={{ marginTop: 8 }}>
-              <thead>
-                <tr><sw2.Th k="label">{t("Wireless point")}</sw2.Th><sw2.Th k="ap_kind">{t("Type")}</sw2.Th>
-                    <sw2.Th k="environment" get={(w) => w.environment || "~"}
-                            title={t("Where the service is given: indoor (a covered area) or outdoor (an open area). A column of the Wireless points sheet in the workbook.")}>
-                      {t("Indoor / outdoor")}
-                    </sw2.Th>
-                    <sw2.Th k="page">{t("Page")}</sw2.Th>
-                    <sw2.Th k="space_name">{t("TEAP space")}</sw2.Th>
-                    <sw2.Th k="serving_ner">{t("Served by")}</sw2.Th>
-                    <sw2.Th k="distance_m">{t("Distance")}</sw2.Th><sw2.Th k="status">{t("Status")}</sw2.Th>
-                    <th /></tr>
-              </thead>
-              <tbody>
-                {sw2.apply(wirelessPoints).map((w: any) => (
-                  <tr key={w.id}>
-                    <td className="mono">{w.label}</td>
-                    <td>{w.ap_kind || "Wi-Fi"}</td>
-                    <td>
-                      {/* 4.5.0: said by the person, like a NER's. */}
-                      <select className="env-select" value={w.environment || ""}
-                              onChange={(e) => void setWirelessEnvironment(w, e.target.value)}>
-                        <option value="">{t("— not said —")}</option>
-                        <option value="indoor">{t("Indoor")}</option>
-                        <option value="outdoor">{t("Outdoor")}</option>
-                      </select>
-                    </td>
-                    <td><PageButton ctx={ctx} page={w.page} x={w.x} y={w.y} long /></td>
-                    <td>{w.space_name
-                      ? <>{w.space_name} <span className="muted small">· {w.tie_source === "manual" ? t("tied by you") : w.tie_source === "teap" ? t("from the TEAP") : t("proposed")}</span></>
-                      : <span className="muted small">{t("— none: not in the TEAP, no port —")}</span>}</td>
-                    <td style={{ minWidth: 220 }}>
-                      {/* The room for this point (2.11.0): your choice; else the
-                          room fixed for its TEAP space; else the rule. */}
-                      <select value={w.assigned_ner_asset_id || ""}
-                              onChange={(e) => serveWireless(w, e.target.value ? Number(e.target.value) : null)}>
-                        <option value="">{wirelessPlaceholder(w)}</option>
-                        {roomOptions.map((o: any) => (
-                          <option key={o.id} value={o.id}>{o.label}</option>
-                        ))}
-                      </select>
-                      {w.assigned_ner_asset_id
-                        ? <div className="small" style={{ color: "var(--accent, #4c8dff)" }}>{t("chosen by you")}</div>
-                        : w.space_ner
-                          ? <div className="small" style={{ color: "var(--ok)" }}>{t("the NER of its TEAP space")}</div>
-                          : null}
-                    </td>
-                    <td style={{ whiteSpace: "nowrap" }}>
-                      {fmtLen(w.distance_m, ctx.units)}
-                      {w.limit_m != null && w.distance_m != null && <span className="small muted"> / {w.limit_m} m</span>}
-                    </td>
-                    <td>{w.status ? <StatusPill status={w.status} /> : <span className="muted small">—</span>}</td>
-                    <td>
-                      <button className="small danger" onClick={() => deleteWireless(w)}>{t("Delete")}</button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          )}
-        </div>
-      )}
 
       {nerLoad.length > 0 && (
         <div className="card">
@@ -2751,6 +2653,248 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
           record of who changed what and why — an administration matter, not a
           report — and it now lives on the Account & security screen with the
           accounts and the sessions. */}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+
+/**
+ * Wi-Fi — a step of its own (5.2.0), after Demand per space.
+ *
+ * Until 5.2.0 the placing card sat on the Scale screen and the list of points
+ * on Demand per space. Marcelo, 3 Nov 2026: the placing depends on the TEAP ×
+ * drawing ties — a point goes beside the room its space is tied to — so it
+ * belongs after them, in its own window with its own list. Placing again
+ * also moves a point this step placed, and nobody dragged, to the room its
+ * space is tied to now.
+ */
+export function WifiPanel({ ctx }: { ctx: Ctx }) {
+  const p = ctx.project;
+  const sw2 = useSort<any>();
+  const job = useJob();
+  const [placingAps, setPlacingAps] = useState(false);
+  const placingApsRef = useRef(false);
+  const [spreading, setSpreading] = useState(false);
+  const [q, setQ] = useState("");
+  const { data: stacked, reload: reloadStacked } = useAsync(
+    () => (p ? api.stackedWifi(p.id) : Promise.resolve(null)), [p?.id], null as any);
+  const { data: pins, reload: reloadPins } = useAsync(
+    () => (p ? api.assignments(p.id, false) : Promise.resolve({ spaces: [] })),
+    [p?.id], { spaces: [] } as any);
+  const { data: ners } = useAsync(
+    () => (p ? api.ners(p.id) : Promise.resolve({ ners: [] })), [p?.id], { ners: [] } as any);
+  const roomOptions = useMemo(() => nerRoomOptions(ners), [ners]);
+  if (!p) return null;
+
+  const wirelessPoints: any[] = (pins as any).wireless_points || [];
+  const analysed = (pins as any).analysed_at;
+  const shownPoints = wirelessPoints.filter((w) =>
+    !q || fold(`${w.label} ${w.space_name || ""} ${w.serving_ner || ""}`).includes(fold(q)));
+
+  const run = async () => {
+    try {
+      await job.start(() => api.analyse(p.id, "As-Is"), async (j) => {
+        if (j.state === "error") { ctx.notify(j.error, "err"); return; }
+        if (j.state !== "done") return;
+        await Promise.all([reloadPins(), ctx.reload()]);
+        ctx.notify(t("Coverage computed — every Wi-Fi point is measured from where it is drawn now."));
+      });
+    } catch (e: any) { ctx.notify(e.message, "err"); }
+  };
+
+  // The placing step (2.19.0) — a double click fires two clicks before React
+  // re-renders the disabled button, so the guard is a ref.
+  const placeAps = async () => {
+    if (placingApsRef.current) return;
+    placingApsRef.current = true;
+    try { await placeApsOnce(); } finally { placingApsRef.current = false; }
+  };
+  const placeApsOnce = async () => {
+    const q2 = t("Mark the spaces the TEAP says have wireless? One Wi-Fi point for every TEAP space with a DWISA line whose room is on a drawing, beside the room's label and tied to that space. It marks the space, it is not an access point count, and it adds no port — the DWISA line stays the space's wireless port. Never on a key plan; spaces with no room on the drawing get nothing and stay pending. Running it again only adds what is missing, takes back extra points it placed, and moves a point it placed — and nobody dragged — to the room its space is tied to now.");
+    if (!confirm(q2)) return;
+    setPlacingAps(true);
+    try {
+      const r = await api.placeAccessPoints(p.id);
+      await ctx.reload();
+      const parts = [`${r.placed ?? 0} ${t("Wi-Fi point(s) placed in")} ${r.spaces_placed ?? 0} ${t("space(s)")}`];
+      if (r.moved_to_room) parts.push(`${r.moved_to_room} ${t("Wi-Fi point(s) moved to the room their space is tied to now")}`);
+      if (r.away_kept) parts.push(`${r.away_kept} ${t("Wi-Fi point(s) you dragged sit away from their space's room — kept where you put them, check them")}${r.away_kept_names?.length ? ` (${r.away_kept_names.slice(0, 6).join(", ")}${r.away_kept_names.length > 6 ? ", …" : ""})` : ""}`);
+      if (r.already_had_points) parts.push(`${r.already_had_points} ${t("space(s) already had their Wi-Fi point")}`);
+      if (r.removed_extra) parts.push(`${r.removed_extra} ${t("extra Wi-Fi point(s) taken back (one per space)")}`);
+      if (r.extra_by_hand) parts.push(`${r.extra_by_hand} ${t("Wi-Fi point(s) drawn by hand beyond one per space — kept, check them")}`);
+      if (r.no_room) parts.push(`${r.no_room} ${t("space(s) request wireless but have no room on the drawing — left pending")}${r.unplaced_spaces?.length ? ` (${r.unplaced_spaces.slice(0, 6).join(", ")}${r.unplaced_spaces.length > 6 ? ", …" : ""})` : ""}`);
+      if (r.on_key_plan) parts.push(`${r.on_key_plan} ${t("space(s) sit on a key plan")}`);
+      if (r.deleted_by_you) parts.push(`${r.deleted_by_you} ${t("space(s) whose Wi-Fi point you deleted — left without one")}`);
+      ctx.notify(`${parts.join("; ")}. ${t("Run analysis to measure them from where they are now.")}`);
+    } catch (e: any) { ctx.notify(e.message, "err"); }
+    finally { setPlacingAps(false); reloadStacked(); reloadPins(); }
+  };
+
+  // Spread the Wi-Fi points that sit on top of each other (4.8.0).
+  const spreadWifi = async () => {
+    if (spreading || !stacked?.to_move) return;
+    if (!confirm(`${t("Spread the Wi-Fi points that sit on top of each other?")} ` +
+                 `${stacked.points} ${t("point(s) in")} ${stacked.stacks} ${t("stack(s)")}: ` +
+                 t("the oldest point of each stack stays where it is and the others move beside it, in rows of four. Ties, the NER chosen and indoor/outdoor go with each point; every move is in the audit log."))) return;
+    setSpreading(true);
+    try {
+      const r = await api.spreadWifi(p.id);
+      await ctx.reload();
+      ctx.notify(`${r.moved ?? 0} ${t("Wi-Fi point(s) moved out of")} ${r.stacks ?? 0} ${t("stack(s)")}. ${t("Run analysis to measure them from where they are now.")}`);
+    } catch (e: any) { ctx.notify(e.message, "err"); }
+    finally { setSpreading(false); reloadStacked(); reloadPins(); }
+  };
+
+  /** A wireless point placed by mistake, removed from the list. */
+  const deleteWireless = async (w: any) => {
+    if (!confirm(`${t("Delete")} ${w.label} (${pageName(p!, w.page)})?`)) return;
+    try {
+      await api.deleteElement(p!.id, w.id);
+      await reloadPins();
+      reloadStacked();
+      ctx.notify(`${w.label} ${t("deleted from the drawing")}. ${t("Re-run the analysis to see the effect.")}`);
+    } catch (e: any) { ctx.notify(e.message, "err"); }
+  };
+
+  /** Indoor (covered) or outdoor (open) for one Wi-Fi point (4.5.0). */
+  const setWirelessEnvironment = async (w: any, env: string) => {
+    try {
+      await api.patchElement(p!.id, w.id, { environment: env });
+      await reloadPins();
+    } catch (e: any) { ctx.notify(e.message, "err"); }
+  };
+
+  /** Choose (or release) the NER for one wireless point. */
+  const serveWireless = async (w: any, nerAssetId: number | null) => {
+    try {
+      await api.serveWireless(p!.id, w.id, { ner_asset_id: nerAssetId,
+        justification: nerAssetId ? "chosen for the wireless point" : "released" });
+      await reloadPins();
+      ctx.notify(nerAssetId
+        ? `${w.label}: ${t("assigned. Re-run the analysis to see the effect.")}`
+        : `${w.label}: ${t("released. Re-run the analysis to see the effect.")}`);
+    } catch (e: any) { ctx.notify(e.message, "err"); }
+  };
+  /** The first option of a point's select: what it follows with no choice of its own. */
+  const wirelessPlaceholder = (w: any) => {
+    if (w.assigned_ner_asset_id) return w.space_ner
+      ? `${t("✕ clear my choice — back to its TEAP space's NER")}: ${w.space_ner}`
+      : t("✕ clear my choice — back to the nearest NER rule");
+    if (w.space_ner) return `${t("as its TEAP space")}: ${w.space_ner}`;
+    if (w.serving_ner) return `${t("nearest:")} ${w.serving_ner}`;
+    if (!w.status) return t("— not analysed yet —");
+    return w.nearest_ner
+      ? `${t("— none within")} ${w.limit_m ?? p!.settings.general_limit_m} m · ${t("nearest")}: ${w.nearest_ner}`
+      : t("— nothing reaches it: choose the NER —");
+  };
+
+  return (
+    <>
+      <div className="card">
+        <h2>{t("Wi-Fi from the TEAP")}</h2>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          {t("The spaces the TEAP says have wireless (a DWISA line), marked with one Wi-Fi point each where their rooms are, beside the room's label, tied to that space. A Wi-Fi point says the space has wireless; it is not an access point count — the quantity stays on the DWISA line and the number of APs comes from the wireless design. It adds no port: the DWISA line stays the space's wireless port, counted on the NER that serves the space. The distance to the NER is checked from where the point is drawn. Never on a key plan; a space with no room on the drawing gets nothing and stays pending — tie its room first on TEAP × drawing. Running it again never duplicates: it adds only what is missing and takes back extra points it placed itself; points you drew are never removed.")}
+        </p>
+        <p className="muted small" style={{ marginTop: 0 }}>
+          {t("Settle the rooms on TEAP × drawing first. When a space's room changes afterwards, run this again: a point it placed that nobody dragged moves to the new room; one you dragged stays where you put it and is reported.")}
+        </p>
+        <div className="row" style={{ alignItems: "center" }}>
+          <button className="primary" disabled={placingAps || !(p.drawings || []).length} onClick={placeAps}>
+            {placingAps ? t("Placing…") : t("Place Wi-Fi from the TEAP")}
+          </button>
+          <button disabled={spreading || !stacked?.to_move} onClick={spreadWifi}
+                  title={t("Move the Wi-Fi points that sit on top of each other into a grid beside the oldest one")}>
+            {spreading ? t("Spreading…") : `${t("Spread stacked Wi-Fi points")}${stacked?.to_move ? ` (${stacked.to_move})` : ""}`}
+          </button>
+          <button disabled={job.busy} onClick={run}
+                  title={t("Measure every space and every Wi-Fi point to its NER again")}>
+            {t("Run analysis")}
+          </button>
+          <span className="small muted" style={{ marginBottom: 0 }}>
+            {stacked?.to_move
+              ? `${stacked.points} ${t("point(s) sit on top of another one, in")} ${stacked.stacks} ${t("stack(s)")}`
+              : t("no Wi-Fi point sits on top of another one")}
+            {analysed ? <> · {t("Last analysis")} {String(analysed).replace("T", " ").slice(0, 16)}</> : null}
+          </span>
+        </div>
+        <p className="muted small" style={{ marginBottom: 0 }}>
+          {t("A Wi-Fi point you delete stays deleted: running this step again leaves its space without one. Draw a point with +Wi-Fi for the space, or tie one to it, to bring it back.")}
+        </p>
+        <JobBar job={job.job} onCancel={job.cancel} onDismiss={job.clear} />
+      </div>
+
+      <div className="card">
+        <h2>{t("Wireless points")} ({wirelessPoints.length})</h2>
+        <p className="muted small" style={{ margin: 0 }}>
+          {t("A point placed by mistake is deleted here or in the Drawing viewer.")}{" "}
+          {t("Placed from the TEAP on this screen (one per space with wireless), or drawn by hand in the Drawing viewer (+Wi-Fi). A Wi-Fi point marks a space that has wireless; it is not an access point count and takes no port. The wireless port is the DWISA line of its TEAP space, counted on that space's row and on the NER that serves the space. Each point is measured to the NER of its space (or the nearest within the general limit) so the 90 m rule is checked where the point is drawn; a point with no NER within reach is listed as an exception.")}
+        </p>
+        <div className="row" style={{ marginTop: 8 }}>
+          <input style={{ maxWidth: 320 }} value={q} onChange={(e) => setQ(e.target.value)}
+                 placeholder={t("Search a point, a space or a NER")} />
+        </div>
+        {wirelessPoints.length === 0 ? (
+          <p className="muted small">{t("No Wi-Fi point yet. Place them from the TEAP above, then run the analysis.")}</p>
+        ) : (
+          <table style={{ marginTop: 8 }}>
+            <thead>
+              <tr><sw2.Th k="label">{t("Wireless point")}</sw2.Th><sw2.Th k="ap_kind">{t("Type")}</sw2.Th>
+                  <sw2.Th k="environment" get={(w) => w.environment || "~"}
+                          title={t("Where the service is given: indoor (a covered area) or outdoor (an open area). A column of the Wireless points sheet in the workbook.")}>
+                    {t("Indoor / outdoor")}
+                  </sw2.Th>
+                  <sw2.Th k="page">{t("Page")}</sw2.Th>
+                  <sw2.Th k="space_name">{t("TEAP space")}</sw2.Th>
+                  <sw2.Th k="serving_ner">{t("Served by")}</sw2.Th>
+                  <sw2.Th k="distance_m">{t("Distance")}</sw2.Th><sw2.Th k="status">{t("Status")}</sw2.Th>
+                  <th /></tr>
+            </thead>
+            <tbody>
+              {sw2.apply(shownPoints).map((w: any) => (
+                <tr key={w.id}>
+                  <td className="mono">{w.label}</td>
+                  <td>{w.ap_kind || "Wi-Fi"}</td>
+                  <td>
+                    <select className="env-select" value={w.environment || ""}
+                            onChange={(e) => void setWirelessEnvironment(w, e.target.value)}>
+                      <option value="">{t("— not said —")}</option>
+                      <option value="indoor">{t("Indoor")}</option>
+                      <option value="outdoor">{t("Outdoor")}</option>
+                    </select>
+                  </td>
+                  <td><PageButton ctx={ctx} page={w.page} x={w.x} y={w.y} long /></td>
+                  <td>{w.space_name
+                    ? <>{w.space_name} <span className="muted small">· {w.tie_source === "manual" ? t("tied by you") : w.tie_source === "teap" ? t("from the TEAP") : t("proposed")}</span></>
+                    : <span className="muted small">{t("— none: not in the TEAP, no port —")}</span>}</td>
+                  <td style={{ width: 300, minWidth: 300, maxWidth: 300 }}>
+                    <select value={w.assigned_ner_asset_id || ""} style={{ width: "100%" }}
+                            onChange={(e) => serveWireless(w, e.target.value ? Number(e.target.value) : null)}>
+                      <option value="">{wirelessPlaceholder(w)}</option>
+                      {roomOptions.map((o: any) => (
+                        <option key={o.id} value={o.id}>{o.label}</option>
+                      ))}
+                    </select>
+                    <div className="small row-status"
+                         style={{ color: w.assigned_ner_asset_id ? "var(--accent, #4c8dff)" : "var(--ok)" }}>
+                      {w.assigned_ner_asset_id ? t("chosen by you")
+                        : w.space_ner ? t("the NER of its TEAP space") : ""}
+                    </div>
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
+                    {fmtLen(w.distance_m, ctx.units)}
+                    {w.limit_m != null && w.distance_m != null && <span className="small muted"> / {w.limit_m} m</span>}
+                  </td>
+                  <td>{w.status ? <StatusPill status={w.status} /> : <span className="muted small">—</span>}</td>
+                  <td>
+                    <button className="small danger" onClick={() => deleteWireless(w)}>{t("Delete")}</button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
     </>
   );
 }

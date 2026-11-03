@@ -399,9 +399,12 @@ def test_a_code_labelled_twice_on_one_sheet_is_not_ambiguity():
     assert any("labelled 2 times on page 8" in n for n in m.notes)
 
 
-def test_a_sub_index_difference_still_counts_as_the_same_room_for_the_tie_break():
-    """PRS.006.02 on the TEAP against PRS.006.01 on the drawing. Requiring an exact
-    code match here blocked the tie-break on 11 of 19 unresolved rooms."""
+def test_two_different_sub_rooms_are_a_question_not_a_page_tie_break():
+    """PRS.006.02 on the TEAP against PRS.006.01 and PRS.006.03 on the drawing.
+    Until 5.2.0 a sub-index difference was read as "the same room" and the
+    denser sheet decided — which tied every line of a family to one room
+    (Marcelo, 3 Nov 2026). Two different codes are two different rooms: with
+    nothing else to tell them apart it is a question for a person."""
     drawing = [DetectedSpace(space_code="PRS.006.01", name="Press Tribune", page=33,
                              x=5, y=5, confidence=0.9)]
     drawing += [space(f"YY.{n:03d}", f"R{n}", page=8) for n in range(1, 30)]
@@ -411,8 +414,9 @@ def test_a_sub_index_difference_still_counts_as_the_same_room_for_the_tie_break(
     rep = match_spaces([("k", "PRS.006.02", "Press Tribune - Tabled Positions", None, None)],
                        drawing, st)
     m = rep.matches[0]
-    assert m.best.drawing_space.page == 8, "the denser sheet should win"
-    assert any("detail sheet" in n for n in m.notes)
+    assert m.confirmed is False
+    assert any("ambiguous" in n for n in m.notes)
+    assert m.best.drawing_space.page == 8, "with nothing else, the denser sheet comes first"
 
 
 def test_a_marginal_page_rank_difference_is_not_treated_as_evidence():

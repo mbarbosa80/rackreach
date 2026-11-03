@@ -41,6 +41,84 @@ package.
 
 ---
 
+## 5.2.1 — 2026-11-03
+
+PATCH: the installer, after an update without administrator rights over an
+installation made with them left the application without its scheduled tasks
+(3 Nov 2026). No screen, file shape or database change.
+
+- **Setup finds an administrator's tasks before changing anything.** The tasks of
+  an installation run as administrator belong to the administrators; an update
+  without the rights could neither replace, disable nor re-enable them, left them
+  disabled and said nothing. `tools/task-check.ps1 -Probe` now runs first; when a
+  task is the administrators', setup says so (and whether it is disabled), gives
+  the two `schtasks /change … /enable` lines for an administrator and asks
+  whether to continue. Continuing leaves those tasks alone, updates, starts the
+  server, and the closing summary says it may not start by itself after a
+  restart. A `<folder>.updating` file keeps the watchdog away from the folder
+  while it is replaced, since its task cannot be held.
+- **An install run as administrator shares the tasks with the person.**
+  `tools/task-share.ps1` adds the signed-in account to both tasks' permissions,
+  so the next update needs no administrator.
+- **`autostart.bat` says "Done" only when both tasks exist and are enabled.**
+  `tools/task-check.ps1 -Verify` reads them back, enables one found disabled
+  where the account may, and otherwise ends with *NOT DONE* and what to do.
+- **`localhost`, not `127.0.0.1`,** in everything a person opens or reads: the
+  desktop shortcut, the browser setup opens, the installer and start messages
+  (Windows and Mac) and the manuals. Edge on managed computers opens
+  `127.0.0.1` in Internet Explorer mode. The server still listens on 127.0.0.1
+  only.
+- The sign-in screen's *server not answering* notice says what to run when it
+  does not come back by itself.
+
+## 5.2.0 — 2026-11-03
+
+MINOR: TEAP × drawing proposes the right room instead of the first of a code
+family, Wi-Fi is a step of its own after Demand per space, and the screens stop
+moving under the pointer. Every project, export and decision stays valid; a
+room you chose or confirmed is kept when the matching re-runs.
+
+- **Every line of a code family was tied to the same room.** Seen on 3 Nov 2026:
+  the TEAP lines `DOP.001.02`, `.03`, `.04`, `.04-02` and `.04-03` were all
+  proposed `DOP.001.002 · Chaperone Waiting Room`, although the sheet prints each
+  of them. The TEAP writes `02` where the sheet writes `002`, so the exact code
+  never matched; the fallback compared only the letters and the first number
+  (`DOP.001`), ignored the name, and the order of the list broke the tie. Now a
+  code is compared number by number (`02` = `002`, `04-02` = `004-002`) and such
+  a match is exact and confirmed by the matcher. When there is no exact code the
+  room is chosen by name first (a room the sheet calls what the TEAP calls it),
+  then by how deep the code agrees (`DOP.001.04` goes to a `DOP.001.004-…` room,
+  never to `DOP.001.002`), then by whether the room contains the line (the family
+  head before a neighbouring code), then by whether another line already holds
+  that room exactly; two rooms that nothing tells apart
+  are said to be ambiguous and wait for you. A room may still serve several lines -
+  being held only lowers it. Two different codes are no longer read as one room for
+  the sheet tie-break. Nothing below an exact code is confirmed automatically.
+- **A decision that disagrees with an exact code is marked.** A run never changes
+  your decision; when the sheet prints the line's exact code on another room (a
+  room confirmed before this version, often), the row says so in amber with a ⚠
+  and the line under the tiles counts those rows (`exact_elsewhere` on
+  `GET /projects/{id}/matches`).
+- **The room list opens with the likely rooms on top.** A *Suggested — closest code
+  and name* group (up to six, by code depth and name) comes before every room A–Z.
+- **Wi-Fi is step 7**, after Demand per space: *Place Wi-Fi from the TEAP*, *Spread
+  stacked Wi-Fi points*, *Run analysis* and the list of Wi-Fi points (indoor/outdoor,
+  served by, distance, status, delete) are on that screen; they left the Scale screen
+  and Demand per space (Demand keeps the count, which opens the step). Exceptions is
+  step 8 and Reports step 9. Placing again now also moves a point it placed, and that
+  nobody dragged, to the room its space is tied to now (audited as
+  `wireless.followed_room`); a point you dragged stays and is reported.
+- **The worklist holds still.** Its order is taken once and kept while you choose
+  and confirm (it used to send a decided row to the end and pull the rows below it
+  up under the pointer); *Re-sort*, a tile or *Run matching* takes it again. The
+  room column has a fixed width (filling the list on hover used to widen it), and the
+  line saying who decided a row is always there, so a choice no longer makes the row
+  taller.
+- **The progress bar of a long job floats** at the bottom right instead of opening
+  and closing inside the screen, and closes itself a few seconds after the job
+  finishes (an error stays until dismissed). It no longer reads "Finished finished".
+- **Projects:** *Import a project package* is below the list of projects.
+
 ## 5.1.2 — 2026-10-31
 
 PATCH: the composite map draws faster, and an update no longer leaves the server

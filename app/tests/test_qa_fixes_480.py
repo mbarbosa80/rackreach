@@ -387,6 +387,6 @@ def test_r1_a_row_holds_only_its_own_room_until_it_is_opened():
     assert "<SpaceSelect" in panel
     # … the list is built only for the select under the pointer or in focus …
     sel = src[src.index("function SpaceSelect"):src.index("export function MatchingPanel")]
-    assert "onMouseEnter" in sel and "onFocus" in sel and "open\n        ? options.map" in sel
+    assert "onMouseEnter" in sel and "onFocus" in sel and "{open ? (" in sel and "options.map" in sel
     # … and a choice reloads the rows, not the drawing spaces.
     assert "const reload = async () => { await reloadMatches(); };" in panel

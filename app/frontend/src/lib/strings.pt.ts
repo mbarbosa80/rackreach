@@ -735,8 +735,6 @@ export const PT: Record<string, string> = {
   "consolidation undone": "consolidação desfeita",
   "Nothing consolidated yet.": "Nada consolidado ainda.",
   // TEAP × drawing
-  "Order: exact space code → base code → exact name → normalised name → synonyms → text similarity → building/level context. Low-confidence and ambiguous results are never confirmed silently — each one is yours to check against the sheet.":
-    "Ordem: código exato do espaço → código-base → nome exato → nome normalizado → sinônimos → similaridade de texto → contexto de prédio/nível. Resultados ambíguos ou de baixa confiança nunca são confirmados em silêncio — cada um é seu para conferir na folha.",
   "Re-running never clears a room you chose or confirmed. Those are stored on the TEAP line itself, not on this list.": "Rodar de novo nunca apaga uma sala que você escolheu ou confirmou. Isso fica gravado na própria linha do TEAP, não nesta lista.",
   "Matched": "Cruzados",
   "TEAP spaces": "espaços do TEAP",
@@ -989,8 +987,8 @@ export const PT: Record<string, string> = {
     "Clique em um marcador, em um espaço ou em uma área nomeada. Arraste um marcador destravado para movê-lo; a alteração fica no log de auditoria. As ferramentas +NER criam uma sala que é objeto do estudo; +TER, +IDF, +COW e +DIVA desenham o que existe no prédio e nunca atendem um espaço. +AP in e +AP out criam um wireless point (access point interno ou externo): uma porta na NER mais próxima dentro do limite, no lugar da porta de wireless que o TEAP pede para o espaço. As ferramentas ilustrativas (em violeta) são só desenho e não contam em nada: *NER★ e *NER criam uma referência a uma NER numa planta-chave, com o nome de uma NER do registro e os raios de alcance na escala desta folha; *TER, *COW e *DIVA fazem o mesmo para essas salas, sem raios; +area desenha uma área nomeada (BTOC, TER, um compound) — clique em cada canto, dê dois cliques ou Enter para fechar. Para desfazer qualquer coisa: selecione e pressione Delete (ou o botão Delete aqui), ou ligue a ferramenta delete e clique no que deve sair.",
 
   // 2.6.1 — the server down or restarting, seen from the browser
-  "the server is not answering — it is restarted automatically within about two minutes, and this page reconnects by itself":
-    "o servidor não está respondendo — ele é reiniciado automaticamente em cerca de dois minutos, e esta página reconecta sozinha",
+  "the server is not answering — it normally restarts by itself within about two minutes and this page reconnects; if it does not, run server-start.cmd in the tools folder of the installation (Windows) or mac/start.command (Mac)":
+    "o servidor não está respondendo — normalmente ele volta sozinho em cerca de dois minutos e esta página reconecta; se não voltar, rode server-start.cmd na pasta tools da instalação (Windows) ou mac/start.command (Mac)",
   "server not answering — reconnecting":
     "servidor sem resposta — reconectando",
   "the server is back":
@@ -1877,4 +1875,38 @@ export const PT: Record<string, string> = {
     "um mapa composto deste projeto está sendo montado; espere terminar (a barra de progresso mostra)",
   "the composite map PDF is already being made":
     "o PDF do mapa composto já está sendo gerado",
+
+  // --- 5.2.0: the Wi-Fi step, the room suggestions, a worklist that holds still
+  "Suggested — closest code and name": "Sugeridos — código e nome mais próximos",
+  "Every room, A–Z": "Todas as salas, A–Z",
+  "The rows keep their place while you work, so nothing moves under the pointer. This puts the rows that still need a look back on top.":
+    "As linhas ficam no lugar enquanto você trabalha, para nada se mexer sob o ponteiro. Isto coloca de volta no topo as linhas que ainda precisam de atenção.",
+  "Re-sort": "Reordenar",
+  "The Wi-Fi points have their own step now — click to open it":
+    "Os pontos Wi-Fi têm uma etapa própria agora — clique para abrir",
+  "Wi-Fi points": "pontos Wi-Fi",
+  "Coverage computed — every Wi-Fi point is measured from where it is drawn now.":
+    "Cobertura calculada — cada ponto Wi-Fi é medido de onde está desenhado agora.",
+  "Mark the spaces the TEAP says have wireless? One Wi-Fi point for every TEAP space with a DWISA line whose room is on a drawing, beside the room's label and tied to that space. It marks the space, it is not an access point count, and it adds no port — the DWISA line stays the space's wireless port. Never on a key plan; spaces with no room on the drawing get nothing and stay pending. Running it again only adds what is missing, takes back extra points it placed, and moves a point it placed — and nobody dragged — to the room its space is tied to now.":
+    "Marcar os espaços que o TEAP diz ter wireless? Um ponto Wi-Fi para cada espaço do TEAP com linha DWISA cuja sala está num desenho, ao lado do rótulo da sala e ligado a esse espaço. Ele marca o espaço, não é uma contagem de access points, e não acrescenta porta — a linha DWISA continua sendo a porta wireless do espaço. Nunca numa key plan; espaços sem sala no desenho não recebem nada e ficam pendentes. Rodar de novo só acrescenta o que falta, retira pontos extras que ele mesmo colocou e move um ponto que ele colocou — e ninguém arrastou — para a sala a que o espaço está ligado agora.",
+  "Wi-Fi point(s) moved to the room their space is tied to now":
+    "ponto(s) Wi-Fi movido(s) para a sala a que o espaço está ligado agora",
+  "Wi-Fi point(s) you dragged sit away from their space's room — kept where you put them, check them":
+    "ponto(s) Wi-Fi que você arrastou estão longe da sala do espaço — mantidos onde você colocou, confira",
+  "Settle the rooms on TEAP × drawing first. When a space's room changes afterwards, run this again: a point it placed that nobody dragged moves to the new room; one you dragged stays where you put it and is reported.":
+    "Resolva as salas em TEAP × drawing antes. Se a sala de um espaço mudar depois, rode isto de novo: um ponto que ele colocou e ninguém arrastou vai para a nova sala; um que você arrastou fica onde você colocou e é informado.",
+  "Measure every space and every Wi-Fi point to its NER again":
+    "Medir de novo cada espaço e cada ponto Wi-Fi até a sua NER",
+  "Last analysis": "Última análise",
+  "Placed from the TEAP on this screen (one per space with wireless), or drawn by hand in the Drawing viewer (+Wi-Fi). A Wi-Fi point marks a space that has wireless; it is not an access point count and takes no port. The wireless port is the DWISA line of its TEAP space, counted on that space's row and on the NER that serves the space. Each point is measured to the NER of its space (or the nearest within the general limit) so the 90 m rule is checked where the point is drawn; a point with no NER within reach is listed as an exception.":
+    "Colocados a partir do TEAP nesta tela (um por espaço com wireless) ou desenhados à mão no Drawing viewer (+Wi-Fi). Um ponto Wi-Fi marca um espaço que tem wireless; não é uma contagem de access points e não ocupa porta. A porta wireless é a linha DWISA do espaço do TEAP, contada na linha desse espaço e na NER que o atende. Cada ponto é medido até a NER do seu espaço (ou a mais próxima dentro do limite geral), para a regra dos 90 m ser verificada onde o ponto está desenhado; um ponto sem NER ao alcance aparece como exceção.",
+  "Search a point, a space or a NER": "Buscar um ponto, um espaço ou uma NER",
+  "No Wi-Fi point yet. Place them from the TEAP above, then run the analysis.":
+    "Nenhum ponto Wi-Fi ainda. Coloque-os a partir do TEAP acima e rode a análise.",
+  "the sheet prints this exact code on another room": "a folha imprime este código exato em outra sala",
+  "check your choice": "confira a sua escolha",
+  "decided line(s) disagree with an exact code the sheet prints — marked ⚠ on the row.":
+    "linha(s) decidida(s) discordam de um código exato impresso na folha — marcadas com ⚠ na linha.",
+  "Order: exact space code, read number by number (02 = 002) → the code family (same name first, then the deeper code, then the room that contains the line, then a room no other line holds) → exact name → normalised name → synonyms → text similarity → building/level context. Low-confidence and ambiguous results are never confirmed silently — each one is yours to check against the sheet.":
+    "Ordem: código exato do espaço, lido número a número (02 = 002) → a família do código (mesmo nome primeiro, depois o código mais profundo, depois a sala que contém a linha, depois uma sala que nenhuma outra linha ocupa) → nome exato → nome normalizado → sinônimos → similaridade de texto → contexto de prédio/nível. Resultados de baixa confiança ou ambíguos nunca são confirmados em silêncio — cada um é seu para conferir na folha.",
 };

@@ -82,11 +82,31 @@ REM tasks stay as they are and it says what to untick by hand.
 if defined SIGNIN powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\task-harden.ps1" -Name "%TASKNAME%"
 powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\task-harden.ps1" -Name "%WATCHDOG%"
 
+REM 5.2.1: "Done" only when it is true. A watchdog task kept because an
+REM administrator registered it (watchdog-install.ps1) can be DISABLED, and
+REM then nothing starts the server by itself (3 Nov 2026). Read both tasks
+REM back; one found disabled is enabled where this account may.
+powershell -NoProfile -ExecutionPolicy Bypass -File "%~dp0tools\task-check.ps1" -Verify
+if not errorlevel 4 goto :verified
+echo.
+echo  [X] NOT DONE: a task above is missing or DISABLED, and this account cannot
+echo      turn it on ^(it was registered by an administrator^). The server will
+echo      not start by itself. Start it now with  tools\server-start.cmd  and ask
+echo      someone with administrator rights to run, in an administrator Command
+echo      Prompt:
+echo        schtasks /change /tn "%TASKNAME%" /enable
+echo        schtasks /change /tn "%WATCHDOG%" /enable
+echo      or to run setup.bat with "Run as administrator", which makes them again.
+echo.
+if not defined NER_NOPAUSE pause
+exit /b 1
+:verified
+
 if not defined SIGNIN (
   echo.
   echo  Done, without the sign-in task: the watchdog starts the server within
   echo  two minutes of signing in, and brings it back if it ever stops answering.
-  echo  Open http://127.0.0.1:8000 in a browser.
+  echo  Open http://localhost:8000 in a browser.
   echo.
   echo  To stop it:                           stop.bat
   echo  To undo the watchdog:                 autostart.bat remove
@@ -98,7 +118,7 @@ if not defined SIGNIN (
 echo.
 echo  Done. The server will start automatically at sign-in, and the watchdog
 echo  brings it back within two minutes if it ever stops answering.
-echo  Open http://127.0.0.1:8000 in a browser.
+echo  Open http://localhost:8000 in a browser.
 echo.
 echo  To start it now without signing out:  schtasks /run /tn "%TASKNAME%"
 echo  To stop it:                           stop.bat

@@ -1604,10 +1604,22 @@ def list_matches(project_id: int, only_review: bool = False,
         .join(TeapSpace, TeapSpace.id == SpaceMatchRow.teap_space_id)
         .outerjoin(DrawingSpace, DrawingSpace.id == SpaceMatchRow.drawing_space_id)
         .where(SpaceMatchRow.project_id == project_id)).all()
+    # The rooms the matcher answered, to say where your decision and an
+    # exact code the sheet prints disagree (5.2.0).
+    auto_ids = {m.auto_drawing_space_id for m, _t, _d in rows if m.auto_drawing_space_id}
+    auto_rooms = ({d.id: d for d in db.execute(select(DrawingSpace).where(
+        DrawingSpace.id.in_(auto_ids))).scalars()} if auto_ids else {})
     out = []
     for m, t, ds in rows:
         if only_review and m.confirmed:
             continue
+        exact_elsewhere = None
+        auto = auto_rooms.get(m.auto_drawing_space_id)
+        if (t.locked_verdict and auto is not None and m.auto_method == "exact_code"
+                and m.auto_confirmed
+                and (ds is None or S.M.canonical_code(ds.space_code)
+                     != S.M.canonical_code(auto.space_code))):
+            exact_elsewhere = f"{auto.space_code} · {auto.name} ({sh.label(sh.of(auto))})"
         scoped = S.in_scope(t)
         if not scoped and not include_zero:
             continue
@@ -1634,6 +1646,9 @@ def list_matches(project_id: int, only_review: bool = False,
             # Undo has something to take back only where a person decided.
             "undo_available": bool(t.locked_verdict),
             "auto_ready": m.auto_method is not None,
+            # Your decision stands, but the sheet prints this line's exact code
+            # on another room (5.2.0) — said on the row, never changed for you.
+            "exact_elsewhere": exact_elsewhere,
         })
     return out
 

@@ -188,6 +188,20 @@ button.stat.tile.on .k { color: var(--accent); }
 }
 .banner.err { background: #2c1414; border-color: #5c2626; color: #f0a0a0; }
 .banner.ok { background: #12271a; border-color: #24512f; color: #9fe0b0; }
+/* A long job's progress (5.2.0): over the page, bottom right, never in its flow. */
+.banner.jobbar {
+  position: fixed;
+  right: 18px;
+  bottom: 40px;
+  width: min(520px, 92vw);
+  z-index: 1001;
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.45);
+}
+/* The worklist's per-row status line (5.2.0): one line, always there, so a
+   choice never changes the row's height. */
+.row-status { min-height: 16px; line-height: 16px; margin-top: 2px; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
+.space-cell { width: 440px; min-width: 440px; max-width: 440px; }
 /* The app's notice (4.8.0): over the page, never in its flow. */
 .banner.toast {
   position: fixed;

@@ -54,7 +54,7 @@ def test_quick_install_names_the_package_and_the_version():
     text = (DOCS / "QUICK-INSTALL.html").read_text(encoding="utf-8")
     assert f"ner-analyzer-{VERSION}-windows.zip" in text
     assert "setup.bat" in text and "Run as administrator" in text
-    assert "127.0.0.1:8000" in text
+    assert "localhost:8000" in text          # 5.2.1: what a person types
     # It is the one-page guide: no navigation column, and it sends the reader
     # to the full manual for everything else.
     assert 'id="toc"' not in text

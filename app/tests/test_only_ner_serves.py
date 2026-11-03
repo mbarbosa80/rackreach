@@ -211,8 +211,9 @@ def test_the_served_by_dropdown_filters_to_ners():
     panels = _src("pages", "panels.tsx")
     assert panels.count("canServe(n.kind)") == 1, \
         "the room list is filtered to NERs in one place only"
-    assert panels.count("nerRoomOptions(ners)") == 2, \
-        "Demand per space and Exceptions both offer rooms through nerRoomOptions"
+    # 5.2.0: the Wi-Fi step offers the same list for its points.
+    assert panels.count("nerRoomOptions(ners)") == 3, \
+        "Demand per space, Wi-Fi and Exceptions all offer rooms through nerRoomOptions"
 
 
 def test_no_reach_circle_is_drawn_for_a_room_that_cannot_serve():

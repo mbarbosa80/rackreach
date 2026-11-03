@@ -19,11 +19,11 @@ schtasks /query /tn "%TASKNAME%" >nul 2>nul
 if not errorlevel 1 (
   schtasks /run /tn "%TASKNAME%" >nul 2>nul
   if not errorlevel 1 (
-    echo Starting through the scheduled task... give it 20-40 seconds, then open http://127.0.0.1:8000/
+    echo Starting through the scheduled task... give it 20-40 seconds, then open http://localhost:8000/
     echo Log: data\server.log
     exit /b 0
   )
 )
 start "" "%PYW%" "%CD%\tools\serve.py"
-echo Starting... give it 20-40 seconds, then open http://127.0.0.1:8000/
+echo Starting... give it 20-40 seconds, then open http://localhost:8000/
 echo Log: data\server.log
