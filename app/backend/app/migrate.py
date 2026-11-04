@@ -1542,6 +1542,39 @@ def repair_canonical_positions(db: Session, project: Project) -> dict:
     return {"canonical_repaired": len(fixed)}
 
 
+def separate_detached_522(db: Session, project: Project) -> dict:
+    """5.2.2: a marker separated with *Separate* before 5.2.2 left two NERs
+    and nothing saying they are different rooms, so the duplicate queue could
+    offer to merge them again. For every ``ner.occurrence_detached`` line,
+    record the pair as ``separate`` when both NERs still exist and nothing is
+    recorded for them yet. (Their registered positions are put right by
+    ``repair_canonical_positions``.) Running again changes nothing."""
+    from .models import AuditLog, NerConsolidation
+    ids = {a.id for a in db.execute(select(NerAsset).where(
+        NerAsset.project_id == project.id)).scalars()}
+    have = {frozenset((c.primary_asset_id, c.merged_asset_id)) for c in db.execute(
+        select(NerConsolidation).where(NerConsolidation.project_id == project.id,
+                                       NerConsolidation.decision == "separate")).scalars()}
+    added = 0
+    for row in db.execute(select(AuditLog).where(
+            AuditLog.project_id == project.id,
+            AuditLog.action == "ner.occurrence_detached")).scalars():
+        a, b = (row.payload or {}).get("from_asset"), (row.payload or {}).get("to_asset")
+        if a not in ids or b not in ids or frozenset((a, b)) in have:
+            continue
+        db.add(NerConsolidation(project_id=project.id, primary_asset_id=a, merged_asset_id=b,
+                                decision="separate", method="manual", score=0.0,
+                                evidence=["separated on the NERs screen"], differences=[],
+                                justification="5.2.2: recorded from the separation of "
+                                              f"{row.at:%Y-%m-%d %H:%M}",
+                                actor="migration"))
+        have.add(frozenset((a, b)))
+        added += 1
+    if added:
+        db.commit()
+    return {"separations_recorded": added}
+
+
 def clear_guessed_levels(db: Session, project: Project) -> dict:
     """Take back a level the importer guessed from a bare three-digit figure
     on a sheet whose title block was read (4.1.0, every start, idempotent).
@@ -1799,6 +1832,11 @@ def run(engine: Engine, session_factory) -> dict:
             except Exception as exc:                  # noqa: BLE001 — never keep the app from starting
                 db.rollback()
                 log.warning("5.1.1 released-sheet pass stopped on project %s: %s", project.id, exc)
+            try:
+                row.update(separate_detached_522(db, project))
+            except Exception as exc:                  # noqa: BLE001 — never keep the app from starting
+                db.rollback()
+                log.warning("5.2.2 separation pass stopped on project %s: %s", project.id, exc)
             report["projects"].append(row)
     finally:
         db.close()

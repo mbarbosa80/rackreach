@@ -833,7 +833,20 @@ def adopt_drawn_rooms(db: Session, project: Project, drawing: Drawing, rooms,
     live = [a for a in db.execute(select(NerAsset).where(NerAsset.project_id == project.id)).scalars()
             if a.deleted_at is None and a.merged_into_id is None]
     assets = {a.id: a for a in live}
-    by_code = {a.space_code: a for a in live if code_names_a_room(a.space_code)}
+    # 5.2.2: one NER per code, the oldest — a marker separated from a group
+    # (*Separate*, the NERs screen) is a different room and never takes the
+    # group's code, nor the sheets that print it.
+    by_code: dict = {}
+    for a in sorted(live, key=lambda a: a.id):
+        if code_names_a_room(a.space_code):
+            by_code.setdefault(a.space_code, a)
+    separated: dict[int, set[int]] = {}
+    for c in db.execute(select(NerConsolidation).where(
+            NerConsolidation.project_id == project.id,
+            NerConsolidation.decision == "separate")).scalars():
+        if c.merged_asset_id is not None:
+            separated.setdefault(c.primary_asset_id, set()).add(c.merged_asset_id)
+            separated.setdefault(c.merged_asset_id, set()).add(c.primary_asset_id)
     # A numbered room a person removed keeps its code (4.2.0). Its markers held
     # its spot only on the sheets they are on, so the same code printed on
     # another sheet — or on another series of the book — came back as a new
@@ -925,9 +938,15 @@ def adopt_drawn_rooms(db: Session, project: Project, drawing: Drawing, rooms,
                 stats["on_removed_ner"] += 1
                 continue
             if a is not None:
-                if r.code and not a.space_code:
+                other = by_code.get(r.code) if r.code else None
+                if (r.code and not a.space_code and other is not None
+                        and other.id in separated.get(a.id, ())):
+                    # 5.2.2: separated from the NER that carries this code.
+                    _add_once(a, "classification_evidence",
+                        f"the drawing prints {r.code} here, the code of {other.display_name} — "
+                        f"separated from it on the NERs screen, so the code stays with it")
+                elif r.code and not a.space_code:
                     a.space_code = r.code
-                    other = by_code.get(r.code)
                     if other is not None and other.id != a.id:
                         _add_once(a, "classification_evidence", 
                             f"{other.display_name} ({sh.label(sh.of_asset(other))}) carries the "

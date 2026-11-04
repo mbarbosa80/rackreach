@@ -41,6 +41,25 @@ package.
 
 ---
 
+## 5.2.2 — 2026-11-03
+
+PATCH: *Separate* on the NERs screen takes a marker out of its group for good.
+
+- **The separated marker becomes a NER of its own, named by you.** *Separate*
+  asks for the new NER's name (empty gives the next free name in the sequence);
+  the group's own name and any other NER's name are refused (409). Seen on
+  3 Nov 2026: NERc_10.1 drawn in two rooms by its TEC code; after *Separate* and a
+  rename to NER_34.1, the marked PDF still drew NERc_10.1 under NER_34.1.
+- **Nothing of the old NER stays where the separated marker is.** When the
+  separated marker held the group's registered position, the position moves to
+  one of the group's own markers (it used to stay until the next start-up repair).
+- **The two are recorded as different rooms** (a `separate` decision), so the
+  duplicate list never offers to merge them again. A start-up pass records the
+  separations made before this version.
+- **The code stays with the group.** A later *Place NERs from the drawing* no
+  longer gives the group's TEC code to the separated NER, so the other sheets
+  that print the code keep joining the group (one NER per code, the oldest).
+
 ## 5.2.1 — 2026-11-03
 
 PATCH: the installer, after an update without administrator rights over an

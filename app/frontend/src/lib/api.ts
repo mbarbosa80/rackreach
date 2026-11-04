@@ -434,9 +434,10 @@ export const api = {
       `/projects/${id}/ner-consolidations/${cid}/undo?reason=${encodeURIComponent(reason)}`,
       { method: "POST" },
     ),
-  detachOccurrence: (id: number, elementId: number, reason = "") =>
+  detachOccurrence: (id: number, elementId: number, reason = "", name = "") =>
     req<any>(
-      `/projects/${id}/occurrences/${elementId}/detach?reason=${encodeURIComponent(reason)}`,
+      `/projects/${id}/occurrences/${elementId}/detach?reason=${encodeURIComponent(reason)}` +
+        (name ? `&name=${encodeURIComponent(name)}` : ""),
       { method: "POST" },
     ),
   linkOccurrence: (

@@ -328,15 +328,17 @@ def link_occurrence(project_id: int, element_id: int, body: OccurrenceIn,
 
 @router.post("/projects/{project_id}/occurrences/{element_id}/detach")
 def detach_occurrence(project_id: int, element_id: int, reason: str = "",
-                      actor: str = "user",
+                      actor: str = "user", name: Optional[str] = None,
                       db: Session = Depends(get_session)) -> dict:
-    """Split one occurrence out into a NER of its own."""
+    """Split one occurrence out into a NER of its own — named ``name`` (5.2.2)."""
     p = _project(db, project_id)
     e = db.get(Element, element_id)
     if e is None or e.project_id != p.id:
         raise HTTPException(404, "occurrence not found in this project")
-    new = _guard(R.detach_occurrence, db, p, e, actor=S.current_actor(), reason=reason)
-    return {"element_id": e.id, "new_ner_id": new.id, "code": new.code}
+    new = _guard(R.detach_occurrence, db, p, e, actor=S.current_actor(), reason=reason,
+                 name=name)
+    return {"element_id": e.id, "new_ner_id": new.id, "code": new.code,
+            "name": new.display_name}
 
 
 # ---------------------------------------------------------------------------

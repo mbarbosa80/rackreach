@@ -1909,4 +1909,10 @@ export const PT: Record<string, string> = {
     "linha(s) decidida(s) discordam de um código exato impresso na folha — marcadas com ⚠ na linha.",
   "Order: exact space code, read number by number (02 = 002) → the code family (same name first, then the deeper code, then the room that contains the line, then a room no other line holds) → exact name → normalised name → synonyms → text similarity → building/level context. Low-confidence and ambiguous results are never confirmed silently — each one is yours to check against the sheet.":
     "Ordem: código exato do espaço, lido número a número (02 = 002) → a família do código (mesmo nome primeiro, depois o código mais profundo, depois a sala que contém a linha, depois uma sala que nenhuma outra linha ocupa) → nome exato → nome normalizado → sinônimos → similaridade de texto → contexto de prédio/nível. Resultados de baixa confiança ou ambíguos nunca são confirmados em silêncio — cada um é seu para conferir na folha.",
+  // --- 5.2.2: Separate asks for the new NER's name
+  "Separate this marker from": "Separar esta marca de",
+  "It becomes a NER of its own, recorded as a different room. Name for the new NER (leave empty for the next free name in the sequence):":
+    "Ela vira uma NER própria, registrada como outra sala. Nome da nova NER (deixe vazio para o próximo nome livre da sequência):",
+  "Separated": "Separada",
+  "a NER of its own; check its criticality on its row.": "uma NER própria; confira a criticidade na linha dela.",
 };

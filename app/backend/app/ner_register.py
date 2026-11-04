@@ -828,11 +828,27 @@ def set_occurrence_link(db: Session, project: Project, element: Element, *,
 
 
 def detach_occurrence(db: Session, project: Project, element: Element, *,
-                      actor: str = "user", reason: str = "") -> NerAsset:
+                      actor: str = "user", reason: str = "",
+                      name: Optional[str] = None) -> NerAsset:
     """Pull one occurrence out into a NER of its own.
 
     This is the fine-grained undo: a consolidation that was right for two of three
     pages can be corrected without unpicking the whole thing.
+
+    5.2.2 — the separated marker is a different room, so it leaves the group
+    for good (Marcelo, 3 Nov 2026: VBB's NERc_10.1 drawn in two places by its
+    TEC code; *Separate* made a new NER but the old one kept its registered
+    position on the separated marker, and the marked PDF drew NERc_10.1 under
+    the renamed NER_34.1):
+
+    * ``name`` — the new NER's name, asked on the screen. Never the group's
+      name, never another live NER's (409); empty means the next free name in
+      the sequence, as before.
+    * the NER it leaves gets its registered position back on one of its own
+      markers (the same rule as the 3.0.0 start-up repair), so nothing is drawn
+      for it where the separated marker is;
+    * the two are recorded as different rooms (a ``separate`` consolidation),
+      so the duplicate queue never offers to merge them again.
     """
     from . import migrate  # local import: migrate imports models, not this module
 
@@ -844,17 +860,53 @@ def detach_occurrence(db: Session, project: Project, element: Element, *,
         raise RegisterError(
             f"{old.display_name} has only this occurrence — detaching it would leave "
             "an empty NER. Remove the NER instead if that is what you mean.")
+    name = (name or "").strip() or None
+    if name is not None:
+        if name_key(name) == name_key(old.display_name):
+            raise NameInUse(f"{old.display_name} is the name of the NER this marker is "
+                            f"separated from — choose another name", old)
+        twin = _live_twin(db, project, old, name)
+        if twin is not None:
+            raise NameInUse(f"{twin.display_name} is already the name of another NER "
+                            f"({twin.code}) — choose another name", twin)
     full = _page_meta(db, project.id)
     meta = SH.PageMeta(full.sheets, {p: (m[0], m[1]) for p, m in full.items()})
     new_asset = migrate._asset_from_element(db, element, meta)
+    if name is not None:
+        new_asset.display_name = name
+        element.label = name
     new_asset.status = NerStatus.IN_REVIEW
     new_asset.updated_by = actor
     element.ner_asset_id = new_asset.id
     element.link_status = "confirmed"
+    db.flush()
+    # The NER left behind: its registered position must be on its own markers.
+    moved = None
+    if (old.canonical_page == element.page and old.canonical_x is not None
+            and abs(old.canonical_x - element.x) < 0.5
+            and abs((old.canonical_y or 0) - element.y) < 0.5) or not any(
+            e.page == old.canonical_page and abs(e.x - (old.canonical_x or 0)) < 0.5
+            and abs(e.y - (old.canonical_y or 0)) < 0.5 for e in remaining):
+        here = [e for e in remaining if e.scenario_id is None
+                and e.kind in ("NER_CRITICAL", "NER_NONCRITICAL")] or remaining
+        m = sorted(here, key=lambda e: (e.page, e.id))[0]
+        moved = {"from": {"page": old.canonical_page, "x": old.canonical_x,
+                          "y": old.canonical_y},
+                 "to": {"page": m.page, "x": m.x, "y": m.y}}
+        old.canonical_page, old.canonical_x, old.canonical_y = m.page, m.x, m.y
+        if m.drawing_id:
+            old.canonical_drawing_id = m.drawing_id
+    db.add(NerConsolidation(project_id=project.id, primary_asset_id=old.id,
+                            merged_asset_id=new_asset.id, decision="separate",
+                            method="manual", score=0.0,
+                            evidence=["separated on the NERs screen"], differences=[],
+                            justification=reason or "separated on the NERs screen",
+                            actor=actor))
     _audit(db, project.id, "ner.occurrence_detached", entity_id=new_asset.id,
            actor=actor, justification=reason,
            payload={"element_id": element.id, "from_asset": old.id,
-                    "to_asset": new_asset.id})
+                    "to_asset": new_asset.id, "name": new_asset.display_name,
+                    "from_name": old.display_name, "canonical_moved": moved})
     db.commit()
     return new_asset
 

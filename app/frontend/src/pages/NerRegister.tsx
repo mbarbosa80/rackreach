@@ -715,12 +715,20 @@ function NerDetail({ ctx, r, busy, act }: any) {
                         className="small danger"
                         disabled={busy}
                         title={t("This marker is a different room: give it a row of its own")}
-                        onClick={() =>
-                          act(
-                            () => api.detachOccurrence(p.id, o.id, "separated on the NERs screen"),
-                            t("marker separated into its own NER"),
-                          )
-                        }
+                        onClick={async () => {
+                          // 5.2.2: the marker leaves the group as a NER of its
+                          // own, with a name of its own — never the group's.
+                          const typed = window.prompt(
+                            `${t("Separate this marker from")} ${r.display_name} (${pageName(p, o.page)}).\n\n` +
+                            t("It becomes a NER of its own, recorded as a different room. Name for the new NER (leave empty for the next free name in the sequence):"),
+                            "");
+                          if (typed === null) return;
+                          let res: any = null;
+                          await act(async () => {
+                            res = await api.detachOccurrence(p.id, o.id, "separated on the NERs screen", typed.trim());
+                          });
+                          if (res) ctx.notify(`${t("Separated")}: ${res.name} — ${t("a NER of its own; check its criticality on its row.")}`);
+                        }}
                       >
                         {t("Separate")}
                       </button>
