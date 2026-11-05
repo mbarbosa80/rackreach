@@ -1,9 +1,9 @@
-# NER Spatial Coverage Analyzer
+# RackReach
 
-A free desktop tool for event and venue technology teams. It crosses venue design drawings with the equipment demand spreadsheet (TEAP), assigns every space to the network equipment rack (NER) that serves it, counts the ports and checks the 90 m / 70 m distance limits, entirely on the user's own computer. Nothing is sent to the cloud.
+A free desktop tool for event and venue technology teams. It crosses venue design drawings with the equipment demand spreadsheet, assigns every space to the network rack that serves it, counts the ports and checks the 90 m / 70 m distance limits, entirely on the user's own computer. Nothing is sent to the cloud.
 
-**Site:** https://mbarbosa80.github.io/ner-analyzer/
-**Download:** [Releases](https://github.com/mbarbosa80/ner-analyzer/releases/latest) — Windows 10/11 (64-bit) and macOS on Apple Silicon. Python comes inside the package; no administrator rights, no internet needed to install.
+**Site:** https://mbarbosa80.github.io/rackreach/
+**Download:** a new public edition is in preparation; it will be published under [Releases](https://github.com/mbarbosa80/rackreach/releases) — Windows 10/11 (64-bit) and macOS on Apple Silicon. Python comes inside the package; no administrator rights, no internet needed to install.
 
 ## What is in this repository
 
@@ -26,4 +26,4 @@ This tool supports the design process. It does not replace engineering approval,
 
 ---
 
-**PT-BR:** Ferramenta gratuita para gestores de tecnologia de venues: cruza os desenhos de design da venue com a planilha de demanda de equipamentos (TEAP), define qual rack de equipamentos de rede (NER) atende cada espaço, conta os pontos e confere os limites de 90 m / 70 m, tudo no próprio computador. Criada por Marcelo Barbosa. Software livre sob a GNU AGPL-3.0, mantendo o crédito ao autor (`NOTICE.txt`). Pacotes para Windows e Mac em *Releases*; o código está em `app/` e o site na raiz.
+**PT-BR:** O RackReach é uma ferramenta gratuita para gestores de tecnologia de venues: cruza os desenhos de design da venue com a planilha de demanda de equipamentos, define qual rack de rede atende cada espaço, conta os pontos e confere os limites de 90 m / 70 m, tudo no próprio computador. Criada por Marcelo Barbosa. Software livre sob a GNU AGPL-3.0, mantendo o crédito ao autor (`NOTICE.txt`). Pacotes para Windows e Mac em *Releases*; o código está em `app/` e o site na raiz.
