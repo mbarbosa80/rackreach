@@ -1,4 +1,4 @@
-NER Spatial Coverage Analyzer
+RackReach
 Copyright (C) 2026 Marcelo Barbosa
 
 Original idea, design and development by Marcelo Barbosa
@@ -33,7 +33,7 @@ ADDITIONAL TERMS (section 7 of the GNU Affero General Public License)
    be presented as the original program or as made by the original author.
 
 3. Names (section 7(e)). This licence grants no right to use the author's
-   name, or the name "NER Spatial Coverage Analyzer", to endorse or promote
+   name, or the name "RackReach", to endorse or promote
    a modified version or any product derived from it, beyond the
    attribution in term 1.
 
