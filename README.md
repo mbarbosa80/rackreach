@@ -3,13 +3,14 @@
 A free desktop tool for event and venue technology teams. It crosses venue design drawings with the equipment demand spreadsheet, assigns every space to the network rack that serves it, counts the ports and checks the 90 m / 70 m distance limits, entirely on the user's own computer. Nothing is sent to the cloud.
 
 **Site:** https://mbarbosa80.github.io/rackreach/
-**Download:** a new public edition is in preparation; it will be published under [Releases](https://github.com/mbarbosa80/rackreach/releases) — Windows 10/11 (64-bit) and macOS on Apple Silicon. Python comes inside the package; no administrator rights, no internet needed to install.
+**Download:** [Releases](https://github.com/mbarbosa80/rackreach/releases) — RackReach 5.4.0 and RackReach Map 1.1.0, for Windows 10/11 (64-bit) and macOS on Apple Silicon. — Windows 10/11 (64-bit) and macOS on Apple Silicon. Python comes inside the package; no administrator rights, no internet needed to install.
 
 ## What is in this repository
 
 | Folder | What it is |
 |---|---|
-| `app/` | The application: Python server (FastAPI, PyMuPDF), React interface, tests, installers, manuals (`app/docs`). See [`app/README.md`](app/README.md) and [`app/CHANGELOG.md`](app/CHANGELOG.md). |
+| `app/` | RackReach, the application: Python server (FastAPI, PyMuPDF), React interface, tests, installers, manuals (`app/docs`). See [`app/README.md`](app/README.md) and [`app/CHANGELOG.md`](app/CHANGELOG.md). |
+| `map/` | RackReach Map, the map-only edition: same structure as `app/`. |
 | root (`index.html`, `assets/`) | The website, served by GitHub Pages. One static page, English and Portuguese, no cookies, no trackers. Run it locally with `start-site.bat` / `start-site.command` and open http://localhost:8080. |
 
 The installable packages are published as Release assets, not committed (GitHub refuses files over 100 MB).
