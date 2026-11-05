@@ -89,7 +89,7 @@ export function LoginGate({ state, onSignedIn }: { state: any; onSignedIn: () =>
   return (
     <div style={{ minHeight: "100vh", background: "var(--bg)", overflowY: "auto" }}>
       <div style={{ maxWidth: 880, margin: "0 auto", padding: "56px 24px 64px" }}>
-        <h1 style={{ fontSize: 20, margin: 0 }}>{t("NER Spatial Coverage Analyzer")}</h1>
+        <h1 style={{ fontSize: 20, margin: 0 }}>{t("RackReach")}</h1>
         <div style={{ display: "flex", alignItems: "baseline", gap: 12, marginBottom: 26 }}>
           <div className="muted small">
             {t("TER / NER placement and coverage study")}

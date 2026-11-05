@@ -456,8 +456,10 @@ def build_mac(args) -> int:
         z.writestr("ner-analyzer/data/.keep",
                    "The database and uploads live here. Created on first run.\n")
         z.writestr("ner-analyzer/BUILD", build + "\n")
+        if PUBLIC:  # 5.4.0: the public vocabulary
+            z.writestr("ner-analyzer/EDITION", "public\n")
         z.writestr("ner-analyzer/PACKAGE.txt",
-                   f"NER Spatial Coverage Analyzer {build} for macOS (Apple Silicon)\n"
+                   f"RackReach {build} for macOS (Apple Silicon)\n"
                    f"{gate_note}\nsource fingerprint {fp}\n"
                    f"built {stamp}\n"
                    f"{len(files)} files, {len(wheels)} bundled Python packages (offline install)\n"
@@ -653,8 +655,10 @@ def main() -> int:
                         f"sha256 {EMBED_SHA256})" if runtime is not None
                         else "no Python runtime bundled: the target needs Python 3.12")
         z.writestr("ner-analyzer/BUILD", build + "\n")
+        if PUBLIC:  # 5.4.0: the public vocabulary
+            z.writestr("ner-analyzer/EDITION", "public\n")
         z.writestr("ner-analyzer/PACKAGE.txt",
-                   f"NER Spatial Coverage Analyzer {build}\n"
+                   f"RackReach {build}\n"
                    f"{gate_note}\nsource fingerprint {fp}\n"
                    f"built {stamp}\n"
                    f"{len(files)} files, {len(wheels)} bundled Python packages"

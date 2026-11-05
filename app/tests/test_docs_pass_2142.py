@@ -67,7 +67,8 @@ def test_manual_matches_the_teap_card_label():
     panels = (ROOT / "frontend/src/pages/panels.tsx").read_text(encoding="utf-8")
     manual = (DOCS / "MANUAL.html").read_text(encoding="utf-8")
     assert 't("2 · TEAP (XLSX / XLSM / CSV)")' in panels
-    assert "<h3>2 · TEAP (XLSX / XLSM / CSV)</h3>" in manual
+    # 5.4.0 public edition: the manual says it in the public words
+    assert "<h3>2 · Demand list (XLSX / XLSM / CSV)</h3>" in manual
     assert "XLSX / XLS / CSV" not in panels and "XLSX / XLS / CSV" not in manual
 
 

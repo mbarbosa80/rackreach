@@ -1073,4 +1073,5 @@ def _legend(page, k: float, limits: dict) -> None:
         else:
             page.draw_line(pymupdf.Point(x0 + 8 * s, y - 4 * s), pymupdf.Point(x0 + 28 * s, y - 4 * s),
                            color=col, width=1.2, dashes="[6 4] 0" if how == "dash" else "[2 3] 0")
-        page.insert_text(pymupdf.Point(x0 + 36 * s, y), txt, fontsize=9 * s)
+        from .edition import term
+        page.insert_text(pymupdf.Point(x0 + 36 * s, y), term(txt), fontsize=9 * s)

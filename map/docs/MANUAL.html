@@ -1,0 +1,644 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<meta name="description" content="User manual of the RackReach Map, screen by screen."/>
+<meta name="author" content="Marcelo Barbosa"/>
+<title>RackReach Map Manual</title>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&amp;family=IBM+Plex+Mono:wght@400;500&amp;family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&amp;display=swap" rel="stylesheet"/>
+<style>
+/* ---------------------------------------------------------------------------
+   Palette inherited from the application itself: the analyzer's own tokens are
+   the project's design system, so the manual reads as part of the same tool
+   rather than a document about it. Light mode deepens the accent for contrast
+   on paper-white; the notation hues are lifted in dark mode so a red NER dot
+   stays a red NER dot on both grounds.
+   --------------------------------------------------------------------------- */
+:root {
+  --ground:      #f5f7fa;
+  --surface:     #ffffff;
+  --surface-2:   #eceff5;
+  --line:        #d7dce6;
+  --line-soft:   #e6eaf2;
+  --ink:         #101420;
+  --ink-2:       #485266;
+  --ink-3:       #78829a;
+  --accent:      #2563c4;
+  --accent-soft: #e6eefb;
+  --ok:          #1c7a3c;
+  --warn:        #9a5406;
+  --bad:         #b01717;
+  --ter:         #0000cc;
+  --ner-c:       #cc0000;
+  --ner-n:       #9a7a00;
+  --idf:         #7a7a7a;
+  --cow:         #8c5a00;
+  --diva:        #8001a0;
+  --proposed:    #7a009c;
+  --radius:      10px;
+  --shadow:      0 1px 2px rgba(16,20,32,.06), 0 8px 24px rgba(16,20,32,.05);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --ground:      #0f1117;
+    --surface:     #171a22;
+    --surface-2:   #1e222c;
+    --line:        #2b3040;
+    --line-soft:   #232838;
+    --ink:         #e6e8ee;
+    --ink-2:       #a8b0c1;
+    --ink-3:       #79839a;
+    --accent:      #4a8cff;
+    --accent-soft: #16233a;
+    --ok:          #2ea44f;
+    --warn:        #f28c1a;
+    --bad:         #e05555;
+    --ter:         #6e8cff;
+    --ner-c:       #ff6060;
+    --ner-n:       #e6b800;
+    --proposed:    #c07ae0;
+    --shadow:      0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+  }
+}
+
+:root[data-theme="dark"] {
+  --ground:      #0f1117;
+  --surface:     #171a22;
+  --surface-2:   #1e222c;
+  --line:        #2b3040;
+  --line-soft:   #232838;
+  --ink:         #e6e8ee;
+  --ink-2:       #a8b0c1;
+  --ink-3:       #79839a;
+  --accent:      #4a8cff;
+  --accent-soft: #16233a;
+  --ok:          #2ea44f;
+  --warn:        #f28c1a;
+  --bad:         #e05555;
+  --ter:         #6e8cff;
+  --ner-c:       #ff6060;
+  --ner-n:       #e6b800;
+  --proposed:    #c07ae0;
+  --shadow:      0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.25);
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--ground);
+  color: var(--ink);
+  font-family: "IBM Plex Sans", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 15.5px;
+  line-height: 1.62;
+  -webkit-font-smoothing: antialiased;
+}
+
+
+h1, h2, h3, h4 {
+  font-family: Archivo, "IBM Plex Sans", ui-sans-serif, system-ui, sans-serif;
+  text-wrap: balance;
+  margin: 0;
+  line-height: 1.2;
+}
+
+code, .mono, kbd {
+  font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.87em;
+}
+
+code {
+  background: var(--surface-2);
+  border: 1px solid var(--line-soft);
+  border-radius: 4px;
+  padding: 0.08em 0.36em;
+  white-space: nowrap;
+}
+
+a { color: var(--accent); text-decoration-thickness: 1px; text-underline-offset: 2px; }
+a:focus-visible, button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* --- shell ---------------------------------------------------------------- */
+.wrap {
+  display: grid;
+  grid-template-columns: 268px minmax(0, 1fr);
+  gap: 40px;
+  max-width: 1240px;
+  margin: 0 auto;
+  padding: 0 28px 96px;
+}
+
+.masthead {
+  grid-column: 1 / -1;
+  border-bottom: 1px solid var(--line);
+  padding: 34px 0 22px;
+  margin-bottom: 30px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 20px 32px;
+}
+
+.masthead .id { flex: 1 1 340px; min-width: 0; }
+
+.eyebrow {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-bottom: 10px;
+}
+
+h1 { font-size: clamp(28px, 4vw, 40px); font-weight: 700; letter-spacing: -0.02em; }
+.masthead p { margin: 10px 0 0; color: var(--ink-2); max-width: 62ch; }
+
+
+/* --- navigation ----------------------------------------------------------- */
+nav {
+  position: sticky;
+  top: 20px;
+  align-self: start;
+  max-height: calc(100vh - 40px);
+  overflow-y: auto;
+  font-size: 13.5px;
+  padding-bottom: 20px;
+}
+nav .navgroup {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin: 22px 0 8px;
+}
+nav .navgroup:first-child { margin-top: 0; }
+nav a {
+  display: flex;
+  gap: 9px;
+  align-items: baseline;
+  padding: 5px 0;
+  color: var(--ink-2);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  padding-left: 11px;
+  margin-left: -13px;
+}
+nav a:hover { color: var(--ink); border-left-color: var(--line); }
+nav a.on { color: var(--accent); border-left-color: var(--accent); font-weight: 500; }
+nav .step {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  color: var(--ink-3);
+  min-width: 18px;
+  flex: 0 0 auto;
+}
+
+/* --- sections ------------------------------------------------------------- */
+main { min-width: 0; }
+section { margin-bottom: 54px; scroll-margin-top: 24px; }
+section > h2 {
+  font-size: 25px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  padding-bottom: 10px;
+  border-bottom: 2px solid var(--ink);
+  margin-bottom: 4px;
+}
+.screen-step {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+section h3 {
+  font-size: 16.5px;
+  font-weight: 600;
+  margin: 30px 0 10px;
+}
+section h4 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  margin: 22px 0 8px;
+  color: var(--ink-2);
+}
+p { margin: 12px 0; max-width: 68ch; }
+ul, ol { margin: 12px 0; padding-left: 22px; max-width: 68ch; }
+li { margin: 5px 0; }
+
+.lede { font-size: 17px; color: var(--ink-2); max-width: 66ch; }
+
+/* --- tables --------------------------------------------------------------- */
+.tablewrap {
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface);
+  margin: 16px 0;
+  box-shadow: var(--shadow);
+}
+table { width: 100%; border-collapse: collapse; font-size: 14px; }
+th, td { text-align: left; padding: 10px 14px; vertical-align: top; border-bottom: 1px solid var(--line-soft); }
+thead th {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  background: var(--surface-2);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+}
+tbody tr:last-child td { border-bottom: 0; }
+td.num { font-variant-numeric: tabular-nums; }
+td:first-child { white-space: normal; }
+.ctrl { font-family: "IBM Plex Mono", monospace; font-size: 12.5px; color: var(--ink); white-space: nowrap; }
+.ctrl-kind {
+  display: block;
+  font-family: "IBM Plex Sans", sans-serif;
+  font-size: 10.5px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  margin-top: 3px;
+  white-space: nowrap;
+}
+
+/* --- callouts ------------------------------------------------------------- */
+.note {
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--accent);
+  background: var(--surface);
+  border-radius: 0 var(--radius) var(--radius) 0;
+  padding: 14px 18px;
+  margin: 18px 0;
+}
+.note.warn { border-left-color: var(--warn); }
+.note.bad  { border-left-color: var(--bad); }
+.note p:first-child { margin-top: 0; }
+.note p:last-child { margin-bottom: 0; }
+.note .tag {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 10.5px;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+  color: var(--accent);
+  display: block;
+  margin-bottom: 5px;
+}
+.note.warn .tag { color: var(--warn); }
+.note.bad .tag  { color: var(--bad); }
+
+.disclaimer {
+  grid-column: 1 / -1;
+  border: 1px solid var(--warn);
+  background: var(--surface);
+  background: color-mix(in srgb, var(--warn) 8%, var(--surface));
+  border-radius: var(--radius);
+  padding: 13px 18px;
+  font-size: 13.5px;
+  color: var(--ink);
+  margin-bottom: 34px;
+}
+
+/* --- swatches ------------------------------------------------------------- */
+.swatch {
+  display: inline-block;
+  width: 13px; height: 13px;
+  border-radius: 3px;
+  vertical-align: -2px;
+  margin-right: 8px;
+  border: 1px solid rgba(128,128,128,.35);
+}
+.dot { border-radius: 50%; }
+.dash { background: transparent !important; border: 2px dashed var(--proposed); }
+
+.pill {
+  display: inline-block;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  white-space: nowrap;
+}
+
+.pathline {
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 12.5px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 12px 15px;
+  margin: 14px 0;
+  overflow-x: auto;
+  white-space: pre;
+  color: var(--ink-2);
+}
+
+.rule { height: 1px; background: var(--line); border: 0; margin: 40px 0; }
+
+@media (max-width: 900px) {
+  .wrap { grid-template-columns: 1fr; gap: 0; padding: 0 18px 70px; }
+  nav {
+    position: static;
+    max-height: none;
+    border-bottom: 1px solid var(--line);
+    padding-bottom: 22px;
+    margin-bottom: 30px;
+    columns: 2;
+    column-gap: 26px;
+  }
+  nav a { break-inside: avoid; }
+}
+@media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; } }
+html { scroll-behavior: smooth; }
+</style>
+<style>
+/* --- additions for the 2.0 manuals ------------------------------------- */
+.legal {
+  font-size: 12.5px;
+  color: var(--ink-3);
+  margin-top: 12px;
+  max-width: 72ch;
+}
+kbd {
+  border: 1px solid var(--line);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 0 5px;
+  background: var(--surface);
+  font-size: 0.85em;
+}
+.steps { counter-reset: step; list-style: none; padding-left: 0; }
+.steps > li {
+  counter-increment: step;
+  position: relative;
+  padding-left: 40px;
+  margin: 10px 0;
+}
+.steps > li::before {
+  content: counter(step);
+  position: absolute; left: 0; top: 2px;
+  width: 26px; height: 26px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  font: 600 12px/26px "IBM Plex Mono", monospace;
+  text-align: center;
+}
+.small { font-size: 13px; color: var(--ink-3); }
+@media print {
+  nav { display: none !important; }
+  .wrap { display: block; max-width: none; padding: 0; }
+  .masthead { padding-top: 0; }
+  section { margin-bottom: 30px; }
+  .tablewrap { overflow: visible; box-shadow: none; }
+  table { font-size: 11.5px; }
+  th, td { padding: 6px 8px; }
+  body { font-size: 12.5px; }
+  h2 { break-after: avoid; }
+  tr, .note { break-inside: avoid; }
+  a { color: inherit; text-decoration: none; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header class="masthead">
+<div class="id">
+<div class="eyebrow">RackReach Map · version 1.1.0 · map study</div>
+<h1>User manual</h1>
+
+<p>How the RackReach Map works, screen by screen. It is the map half of RackReach and nothing else: you load the design books (design book), confirm the scales, place and move racks and the other markers by hand, measure, and export the marked-up map as a PDF. There is no demand list, no matching, no demand and no coverage calculation here. The version history is in <code>CHANGELOG.md</code>.</p>
+
+<p class="legal"><strong>Author: Marcelo Barbosa.</strong> © 2026 Marcelo Barbosa. Free software under the GNU Affero General Public License v3 (AGPL-3.0): you may use, study, change and share it and this manual, keeping the credit to the author — an additional term of the licence (see <code>LICENSE.txt</code> and <code>NOTICE.txt</code>). Built on free components under their own licences (<code>THIRD-PARTY-NOTICES.txt</code>). An independent project, not affiliated with any event organiser, rights holder, venue or employer.</p>
+</div>
+</header>
+<div class="disclaimer">
+<strong>This tool supports the design process. It does not replace engineering approval, a site survey, cable route validation or physical inspection.</strong>
+ — The reach circles are straight lines on the sheet. A cable is never a straight line.
+</div>
+<nav aria-label="Contents" id="toc">
+<div class="navgroup">Before you start</div>
+<a href="#what">What it is for</a>
+<a href="#two-apps">Two separate applications</a>
+<a href="#fluxo">The workflow</a>
+<div class="navgroup">The screens</div>
+<a href="#projects"><span class="step">—</span>Projects</a>
+<a href="#import"><span class="step">1</span>Import</a>
+<a href="#scale"><span class="step">2</span>Scale</a>
+<a href="#viewer"><span class="step">3</span>Drawing viewer</a>
+<a href="#ners"><span class="step">4</span>Racks</a>
+<a href="#reports"><span class="step">5</span>Report (PDF)</a>
+<a href="#composite"><span class="step">↗</span>Composite map</a>
+<a href="#acesso"><span class="step">—</span>Account &amp; security</a>
+<div class="navgroup">Reference</div>
+<a href="#notacao">Visual notation</a>
+<a href="#limits">What it does not do</a>
+</nav>
+<main>
+
+<section id="what">
+<h2>What it is for</h2>
+<p class="lede">A drawing board for rack research on the venue design books: where would a rack go, how far does it reach, what does a level look like with these racks.</p>
+<p>You import the books, the application reads the scale of each sheet, the room names and the racks the design already states, and from then on everything is visual. You place racks (critical or non-critical), equipment rooms, IDFs, COWs, AV network nodes, Wi-Fi points and named areas, move them, measure distances on the sheet's own scale and look at the reach circles around every rack. When the picture is right you export it as a marked-up PDF with the legend.</p>
+<p>Nothing here is counted. A Wi-Fi point is a mark, not an access point count; a rack serves no space; no port is computed. The demand list is not read at all.</p>
+</section>
+
+<section id="two-apps">
+<h2>Two separate applications</h2>
+<p>The RackReach Map and RackReach are installed side by side and share nothing:</p>
+<div class="tablewrap"><table>
+<thead><tr><th></th><th>RackReach Map</th><th>RackReach</th></tr></thead>
+<tbody>
+<tr><td class="ctrl">Address</td><td><code>http://localhost:8001</code></td><td><code>http://localhost:8000</code></td></tr>
+<tr><td class="ctrl">Folder</td><td><code>%LOCALAPPDATA%\Programs\ner-map-analyzer</code></td><td><code>%LOCALAPPDATA%\Programs\ner-analyzer</code></td></tr>
+<tr><td class="ctrl">Scheduled tasks</td><td><code>NER Map Analyzer</code>, <code>NER Map Analyzer watchdog</code></td><td>its own</td></tr>
+<tr><td class="ctrl">Projects and accounts</td><td>its own database</td><td>its own database</td></tr>
+</tbody></table></div>
+<p>A project of one is not visible in the other, and a project package exported by one is refused by the other. To study a venue here, import its books here again.</p>
+</section>
+
+<section id="fluxo">
+<h2>The workflow</h2>
+<ol>
+<li><strong>Install</strong> — unzip the package and double-click <code>setup-noadmin.bat</code> (no administrator rights needed), or run <code>setup.bat</code> as administrator. Details in the installation manual.</li>
+<li><strong>Projects</strong> — create the project (name, venue code).</li>
+<li><strong>Import</strong> — load one or more books (PDF). Several series (300, 400, 600…) can live in one project.</li>
+<li><strong>Scale</strong> — tick the key plans, confirm the scales, and if you want the racks the drawings already state, press <code>Place racks from the drawing</code>.</li>
+<li><strong>Drawing viewer</strong> — the work: draw, move, measure, look at the reach circles.</li>
+<li><strong>Racks</strong> — the list: rename, set critical or non-critical, delete, jump to a page.</li>
+<li><strong>Report (PDF)</strong> — the marked-up PDF, and the composite map if you built one.</li>
+</ol>
+</section>
+
+<section id="projects">
+<div class="screen-step">Projects</div>
+<h2>Projects</h2>
+<p class="lede">Create, open, share, hand over and delete projects. A project is one venue and its books.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Control</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td class="ctrl">Project name / Venue code</td><td>The name, and the venue code shown in the top bar. <code>Create</code> opens the new project on <em>Import</em>.</td></tr>
+<tr><td class="ctrl">Visible to</td><td><em>only me</em>, or readable by the other accounts on this machine. Nothing is published anywhere.</td></tr>
+<tr><td class="ctrl">Open</td><td>Makes it the current project.</td></tr>
+<tr><td class="ctrl">Export</td><td>Writes the whole project — the books and everything drawn on them — into one <code>.zip</code>, to continue on another computer with the RackReach Map.</td></tr>
+<tr><td class="ctrl">Delete</td><td>Deletes the project and everything in it, after asking.</td></tr>
+<tr><td class="ctrl">Import a project package</td><td>Brings a package written by <em>Export</em> in as a new project of yours. The original is not touched.</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="import">
+<div class="screen-step">Step 1</div>
+<h2>Import</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Control</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td class="ctrl">1 · Drawings (PDF)</td><td>Choose one book or several at once. They are read one after the other: pages, title blocks, scales, room names, rack symbols and codes. The same file twice, or a name already in the project, is refused. <code>Remove</code> takes a book out with what is drawn on it.</td></tr>
+<tr><td class="ctrl">2 · Distance circles</td><td>The radius of the two reach circles drawn around every rack — the general limit (90 m by default) and the photographer limit (70 m) — and the units distances are shown in. <code>Save</code> applies them everywhere, the PDF included.</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="scale">
+<div class="screen-step">Step 2</div>
+<h2>Scale</h2>
+<p class="lede">Every measure and every circle depends on the sheet's scale, so confirm it before you trust a distance.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Control</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td class="ctrl">Key plan</td><td>Marks a sheet that only illustrates (key enlarged plan, index, abbreviations). Its rooms are not read and <code>Place racks from the drawing</code> skips it; you can still draw on it by hand. Ticked from the title block; change it and press <code>Apply key-plan ticks</code>.</td></tr>
+<tr><td class="ctrl">Set (ratio or text) / Confirm</td><td>Type <code>200</code> or <code>1/8" = 1'-0"</code> to override the detected scale; <code>Confirm</code> applies it (or the detected one) and marks the page confirmed.</td></tr>
+<tr><td class="ctrl">Confirm all pages</td><td>Confirms every page that has a scale, in one go.</td></tr>
+<tr><td class="ctrl">Place racks from the drawing</td><td>Places the racks the books state — team annotations, TEC.010 / TEC.020 (or TEC.003.01 / .02) rooms, "Network Equipment Rack" labels, rack block symbols — never on a key plan and never where a rack already is. They are named in sequence (RKc_01.1 …, RK_20.1 …). Running it again only adds what is missing. Optional: you can draw every rack yourself instead.</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="viewer">
+<div class="screen-step">Step 3</div>
+<h2>Drawing viewer</h2>
+<p class="lede">Where the work is done. The page selector, the key-plan switch and the search are at the top; the tools are in the column on the left; the inspector is on the right.</p>
+<h4>Tools</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Tool</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td class="ctrl">select</td><td>Click a marker, a room or an area to see it in the inspector; drag an unlocked marker to move it; drag the sheet to pan; the wheel zooms.</td></tr>
+<tr><td class="ctrl">+Rack★ / +rack</td><td>Places a critical (red) or a non-critical (yellow) rack, with its reach circles. It is named in sequence; rename it in the inspector or on the racks screen. Giving it the name of another rack asks whether it is the same rack on another page.</td></tr>
+<tr><td class="ctrl">+Equipment room / +IDF / +COW / +AV network</td><td>Marks what is in the building. No circles.</td></tr>
+<tr><td class="ctrl">+Wi-Fi</td><td>Draws the Wi-Fi sign where you click, to illustrate a space with wireless. No name and nothing counted. Stays armed: click again for the next one.</td></tr>
+<tr><td class="ctrl">+area</td><td>A named area (BTOC, a compound): click each corner, double-click or press Enter to close it, then name it.</td></tr>
+<tr><td class="ctrl">measure</td><td>Click each corner; double-click or Enter ends it; Backspace takes back a point; Esc drops it. Measured on this sheet's scale; nothing is saved or exported. <code>Clear measures</code> takes them all off the sheet.</td></tr>
+<tr><td class="ctrl">delete</td><td>The eraser: click a marker, a Wi-Fi point, an area or a measure to delete it. Stays on until you choose select. A selected item also goes with the Delete key.</td></tr>
+</tbody></table></div>
+<h4>View buttons</h4>
+<div class="tablewrap"><table>
+<thead><tr><th>Button</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td class="ctrl">Fit</td><td>Fits the sheet to the window.</td></tr>
+<tr><td class="ctrl">Radii</td><td>Shows or hides the reach circles.</td></tr>
+<tr><td class="ctrl">Spaces</td><td>Shows or hides the room names read off the sheet.</td></tr>
+<tr><td class="ctrl">Search</td><td>Finds a room, a rack, any marker or an area on any page and jumps to it.</td></tr>
+</tbody></table></div>
+<p>Deleting a rack takes it off every page it is drawn on; <em>Restore</em> on the racks screen brings it back. <em>Delete only this marker</em> in the inspector removes one drawing of it.</p>
+</section>
+
+<section id="ners">
+<div class="screen-step">Step 4</div>
+<h2>Racks</h2>
+<p class="lede">The list of racks: name, criticality, pages, delete.</p>
+<div class="tablewrap"><table>
+<thead><tr><th>Column</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td class="ctrl">Name</td><td>Rename it; the marker on the map follows. A name another rack already has asks whether they are the same rack (OK joins them) or keeps the old name.</td></tr>
+<tr><td class="ctrl">Criticality</td><td>Critical or non-critical — the colour on the map and in the PDF.</td></tr>
+<tr><td class="ctrl">Pages</td><td>Every page it is drawn on; click one to open it in the Drawing viewer, centred on the rack.</td></tr>
+<tr><td class="ctrl">Delete / Removed (n) / Restore</td><td>Deletes the rack from every page; removed racks can be restored.</td></tr>
+</tbody></table></div>
+<p>The line under the counters says how many equipment rooms, IDFs, COWs, AV network nodes and Wi-Fi points are on the map and on which pages; those are managed in the Drawing viewer.</p>
+</section>
+
+<section id="reports">
+<div class="screen-step">Step 5</div>
+<h2>Report (PDF)</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Control</th><th>What it does</th></tr></thead>
+<tbody>
+<tr><td class="ctrl">Marked-up PDF</td><td>The book with everything drawn on it — racks with their reach circles, equipment rooms, IDFs, COWs, AV network nodes, Wi-Fi points, named areas — and the legend on the first page. It runs in the background with a progress bar; on a large book it takes a minute or two.</td></tr>
+<tr><td class="ctrl">with legend</td><td>Off, the legend box is left out and the circles, the scale and the disclaimer go to a thin line at the foot of each page.</td></tr>
+<tr><td class="ctrl">Composite map PDF</td><td>One page per composite map you built (below).</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="composite">
+<div class="screen-step">Composite map</div>
+<h2>Composite map</h2>
+<p>The card under the exports builds, on request, one map per level of one book: the detail sheets laid side by side (never two series, never the key plans), with every rack, its reach circles and the Wi-Fi points already drawn on the sheets. It opens in a window of its own. On it you can move, delete and reclassify racks; a move follows the rack on every sheet that shows the new spot, with undo. Sheets that cannot be placed automatically appear beside the map and can be moved by hand.</p>
+</section>
+
+<section id="acesso">
+<div class="screen-step">Account &amp; security</div>
+<h2>Account &amp; security</h2>
+<p>Your password, and for an administrator the other accounts of this installation and the audit log. A forgotten password is reset with <code>reset-password.bat</code> in the application folder. Accounts are separate from those of RackReach.</p>
+</section>
+
+<section id="notacao">
+<h2>Visual notation</h2>
+<div class="tablewrap"><table>
+<thead><tr><th>Mark</th><th>Meaning</th></tr></thead>
+<tbody>
+<tr><td class="ctrl">Blue dot</td><td>Equipment room</td></tr>
+<tr><td class="ctrl">Red dot</td><td>Rack — critical</td></tr>
+<tr><td class="ctrl">Yellow dot</td><td>Rack — non-critical</td></tr>
+<tr><td class="ctrl">Grey / brown / purple dots</td><td>IDF / MDF, COW, AV network node</td></tr>
+<tr><td class="ctrl">Wi-Fi arcs</td><td>A space with wireless</td></tr>
+<tr><td class="ctrl">Dashed blue circle</td><td>Reach at the general limit (90 m by default), straight line</td></tr>
+<tr><td class="ctrl">Dashed violet circle</td><td>Reach at the photographer limit (70 m by default), straight line</td></tr>
+<tr><td class="ctrl">Shaded outline with a name</td><td>A named area, illustrative only</td></tr>
+</tbody></table></div>
+</section>
+
+<section id="limits">
+<h2>What it does not do</h2>
+<ul>
+<li>It reads no demand list and counts nothing: no ports, no demand, no capacity, no served spaces.</li>
+<li>It traces no cable routes and links no levels; every distance is a straight line on one sheet.</li>
+<li>It shares no project, account or package with RackReach.</li>
+<li>It sends nothing anywhere: it runs on this computer only.</li>
+</ul>
+<p class="legal"><strong>Author: Marcelo Barbosa.</strong> © 2026 Marcelo Barbosa. Free software under the GNU Affero General Public License v3 (AGPL-3.0): you may use, study, change and share it and this manual, keeping the credit to the author — an additional term of the licence (see <code>LICENSE.txt</code> and <code>NOTICE.txt</code>). Built on free components under their own licences (<code>THIRD-PARTY-NOTICES.txt</code>). An independent project, not affiliated with any event organiser, rights holder, venue or employer.</p>
+</section>
+</main>
+</div>
+<script>
+(function () {
+  // Highlight the section currently in view in the table of contents.
+  var links = Array.prototype.slice.call(document.querySelectorAll("#toc a"));
+  var byId = {};
+  links.forEach(function (a) { byId[a.getAttribute("href").slice(1)] = a; });
+
+  if ("IntersectionObserver" in window) {
+    var seen = {};
+    var obs = new IntersectionObserver(function (entries) {
+      entries.forEach(function (e) { seen[e.target.id] = e.isIntersecting; });
+      var current = null;
+      document.querySelectorAll("main section").forEach(function (s) {
+        if (seen[s.id] && !current) current = s.id;
+      });
+      links.forEach(function (a) { a.classList.remove("on"); });
+      if (current && byId[current]) byId[current].classList.add("on");
+    }, { rootMargin: "-10% 0px -70% 0px" });
+    document.querySelectorAll("main section").forEach(function (s) { obs.observe(s); });
+  }
+})();
+</script>
+</body>
+</html>

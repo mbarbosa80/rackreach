@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM  NER Spatial Coverage Analyzer - setup WITHOUT administrator rights
+REM  RackReach - setup WITHOUT administrator rights
 REM
 REM  Double-click this file on a computer where administrator rights cannot
 REM  be granted (a managed laptop). It runs setup.bat with --no-admin: the

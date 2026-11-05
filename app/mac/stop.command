@@ -1,5 +1,5 @@
 #!/bin/bash
-# NER Spatial Coverage Analyzer - stop the server of THIS folder (macOS)
+# RackReach - stop the server of THIS folder (macOS)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 LABEL="com.marcelobarbosa.ner-analyzer"

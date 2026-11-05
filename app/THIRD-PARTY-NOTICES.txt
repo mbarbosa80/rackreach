@@ -1,7 +1,7 @@
 THIRD-PARTY NOTICES
 ===================
 
-The NER Spatial Coverage Analyzer is free software under the GNU AGPL-3.0
+RackReach is free software under the GNU AGPL-3.0
 (LICENSE.txt). It is built on the free and open-source components below,
 each under its own licence, which this program does not change. The
 licence texts travel with each component (inside each Python wheel's

@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM  NER Spatial Coverage Analyzer - start the server in a console window.
+REM  RackReach - start the server in a console window.
 REM
 REM  The window IS the server: closing it stops the application. A browser
 REM  opens at http://localhost:8000 once it is up (20-40 s on a cold start).

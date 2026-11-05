@@ -1,4 +1,4 @@
-NER Spatial Coverage Analyzer
+RackReach
 Copyright (C) 2026 Marcelo Barbosa
 
 Created by Marcelo Barbosa
@@ -31,7 +31,7 @@ ADDITIONAL TERMS (section 7 of the GNU Affero General Public License)
    be presented as the original program or as made by the original author.
 
 3. Names (section 7(e)). This licence grants no right to use the author's
-   name, or the name "NER Spatial Coverage Analyzer", to endorse or promote a
+   name, or the name "RackReach", to endorse or promote a
    modified version or any product derived from it, beyond the attribution
    in term 1.
 
@@ -40,8 +40,8 @@ WHAT THE PROGRAM IS
 -------------------
 
 A design aid for venue technology teams: it crosses a venue's design drawings
-with its technology equipment request (TEAP) to study where network
-equipment rooms (NERs) go and which spaces each one serves. It does not
+with its technology demand list to study where network
+racks go and which spaces each one serves. It does not
 replace engineering approval, a site survey, cable route validation or
 physical inspection. It runs on the user's own computer, sends nothing to the
 cloud and keeps the user's documents on that computer.

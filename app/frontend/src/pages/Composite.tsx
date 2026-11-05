@@ -248,7 +248,7 @@ export function CompositeWindow({ projectId, mapId }: { projectId: number; mapId
         </select>
         <span className="toggles">
           {([["reach", `${data.limits.general_m} m`], ["photo", `${data.limits.photographer_m} m`],
-             ["wifi", t("Wi-Fi")], ["others", "TER / IDF / COW / DIVA"], ["spaces", t("Spaces")],
+             ["wifi", t("Wi-Fi")], ["others", t("TER / IDF / COW / DIVA")], ["spaces", t("Spaces")],
              ["sheets", t("Sheets")]] as [keyof typeof show, string][]).map(([k, label]) => (
             <label key={k}>
               <input type="checkbox" checked={show[k]} style={{ width: "auto" }}

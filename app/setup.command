@@ -1,6 +1,6 @@
 #!/bin/bash
 # =============================================================================
-#  NER Spatial Coverage Analyzer - installer for macOS (Apple Silicon)
+#  RackReach - installer for macOS (Apple Silicon)
 #  (c) 2026 Marcelo Barbosa. Free software, GNU AGPL-3.0 - see LICENSE.txt and NOTICE.txt.
 #
 #  The macOS twin of setup.bat (3.0.0). One step, no administrator password:
@@ -13,7 +13,7 @@
 #       packages into it - offline, nothing is downloaded;
 #    5. registers a launch agent for this account (starts the server at
 #       sign-in and again if it stops), starts it, opens the browser and puts
-#       an "NER Analyzer" link on the Desktop;
+#       a "RackReach" link on the Desktop;
 #    6. removes the installation files: vendor/ in the target, then the
 #       unzipped package and its zip (in the package's folder, one or two
 #       levels up, or in Downloads).
@@ -66,7 +66,7 @@ case "$TARGET" in /*) ;; *) TARGET="$PWD/$TARGET" ;; esac
 TARGET="${TARGET%/}"
 
 say ""
-say "  NER Spatial Coverage Analyzer - installer for macOS"
+say "  RackReach - installer for macOS"
 say "  (c) 2026 Marcelo Barbosa. Free software, GNU AGPL-3.0."
 say ""
 
@@ -187,7 +187,8 @@ if [ "$SERVICES" = "1" ]; then
     done
     if [ "$up" = "1" ]; then
         say "    the server answers on http://localhost:$PORT/"
-        cat > "$HOME/Desktop/NER Analyzer.webloc" 2>/dev/null <<EOF
+        rm -f "$HOME/Desktop/NER Analyzer.webloc" 2>/dev/null
+        cat > "$HOME/Desktop/RackReach.webloc" 2>/dev/null <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict><key>URL</key><string>http://localhost:$PORT/</string></dict></plist>

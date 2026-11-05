@@ -438,7 +438,7 @@ def test_the_exporter_rings_a_reference_with_the_reach_circles():
     viewer = (SRC / "pages" / "Viewer.tsx").read_text(encoding="utf-8")
     assert '"add-ner-ref-critical": "NER_CRITICAL_REF"' in viewer
     assert '"add-ner-ref": "NER_NONCRITICAL_REF"' in viewer
-    assert '"*NER★"' in viewer and '"*NER"' in viewer
+    assert '"*RK★"' in viewer and '"*RK"' in viewer  # 5.4.0 public labels
 
 
 # ---------------------------------------------------------------------------

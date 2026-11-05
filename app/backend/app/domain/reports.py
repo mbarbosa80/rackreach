@@ -41,6 +41,7 @@ from .matching import normalise_code
 from .pdf_ingest import NER_REFERENCE_KINDS, REFERENCE_KINDS, ElementKind
 from .units import Scale, format_length
 from ..version import APP_NAME, __version__
+from ..edition import is_public, term
 
 #: A venue code already in front of a NER name: ``VHH_NERc_01.1``.
 VENUE_PREFIX_RX = re.compile(r"^\s*[A-Z0-9]{2,5}_(?=NER)", re.IGNORECASE)
@@ -60,7 +61,7 @@ def ner_full_name(venue_code: Optional[str], name: str) -> str:
     return f"{code}_{name}"
 
 #: Stamped on every export so a file found on a desk months later says which
-#: build produced it. Reads "NER Spatial Coverage Analyzer 2.0.0".
+#: build produced it. Reads "RackReach 5.4.0".
 PRODUCED_BY = f"{APP_NAME} {__version__}"
 
 DISCLAIMER = (
@@ -308,7 +309,7 @@ class PageSpace:
             # app landed off the sheet — empty Wi-Fi tags, no footnote. The
             # position is divided by the unit here, the way the drawing is.
             p = pymupdf.Point(p.x / self._uu, p.y / self._uu)
-        self._shape.insert_text(p, s, rotate=self.text_rotate, **kw)
+        self._shape.insert_text(p, term(s), rotate=self.text_rotate, **kw)
 
     def commit(self) -> None:
         """Write everything drawn on this page, in one pass."""
@@ -1583,6 +1584,32 @@ def _order_and_colour_sheets(wb) -> None:
         # two tabs grouped and every edit would land on both.
         ws.sheet_view.tabSelected = (i == 0)
     wb.active = 0
+    if is_public():
+        _publicize_workbook(wb)
+
+
+def _publicize_workbook(wb) -> None:
+    """The public edition's words in a workbook (5.4.0): sheet names, the
+    formulas that name them, and every text cell. Rack names (``RKc_01.1``)
+    and anything joined to a word by an underscore are left alone."""
+    renamed = {}
+    for ws in wb.worksheets:
+        new = term(ws.title)[:31]
+        if new != ws.title:
+            renamed[ws.title] = new
+            ws.title = new
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                v = cell.value
+                if not isinstance(v, str):
+                    continue
+                if cell.data_type == "f":
+                    for old, new in renamed.items():
+                        v = v.replace(f"'{old}'!", f"'{new}'!").replace(f"{old}!", f"'{new}'!")
+                    cell.value = v
+                else:
+                    cell.value = term(v)
 
 
 def export_csv(out_path: str, coverage: CoverageResult, sheet_cell=None) -> str:
@@ -1591,7 +1618,8 @@ def export_csv(out_path: str, coverage: CoverageResult, sheet_cell=None) -> str:
     with open(out_path, "w", newline="", encoding="utf-8") as fh:
         w = csv.writer(fh)
         w.writerow(["space_key", "space_name", "page", "demand_type", "ports_required",
-                    "ner", "ner_internal_id", "ner_chosen_by", "ner_critical",
+                    *(("rack", "rack_internal_id", "rack_chosen_by", "rack_critical") if is_public()
+                      else ("ner", "ner_internal_id", "ner_chosen_by", "ner_critical")),
                     "distance_m", "method", "limit_m", "margin_m", "status",
                     "needs_validation"])
         for a in coverage.assignments:

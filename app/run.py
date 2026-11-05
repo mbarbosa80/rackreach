@@ -148,7 +148,7 @@ def main() -> int:
         version = (ROOT / "VERSION").read_text(encoding="utf-8").strip()
     except OSError:
         version = "unknown"
-    print(f"\n  NER Spatial Coverage Analyzer {version}\n  {url}\n"
+    print(f"\n  RackReach {version}\n  {url}\n"
           f"  Cold start takes 20-40 s. Press Ctrl+C (or close this window) to stop.\n")
     # --app-dir puts backend/ on the import path explicitly. The bundled
     # runtime ignores PYTHONPATH and the working directory by design (its

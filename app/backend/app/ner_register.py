@@ -455,7 +455,7 @@ def _rename_now(db: Session, project: Project, asset: NerAsset, new_name: str, *
 #: the critical mark, group 2 the number; the rack suffix (``.1``, ``.2``) and
 #: the venue code are not part of the number.
 SEQUENTIAL_NAME_RX = re.compile(
-    r"^\s*(?:[A-Z0-9]{2,5}_)?NER\s*(c)?\s*[-._ ]?\s*0*(\d{1,3})(?:\.(\d{1,2}))?\s*$",
+    r"^\s*(?:[A-Z0-9]{2,5}_)?(?:NER|RK)\s*(c)?\s*[-._ ]?\s*0*(\d{1,3})(?:\.(\d{1,2}))?\s*$",
     re.IGNORECASE)
 
 
@@ -464,7 +464,8 @@ def sequential_name(number: int, critical: bool) -> str:
     place of the sheet's space (Marcelo, 9 Oct 2026: "não usar espaços e sim
     NERc_01.1, isso serve pra tudo"). The ``.1`` is the rack: a second rack
     beside the first is ``.2``, renamed by hand."""
-    return f"{'NERc' if critical else 'NER'}_{number:02d}.1"
+    from .edition import rack_prefix  # RKc_01.1 / RK_20.1 in the public edition (5.4.0)
+    return f"{rack_prefix(critical)}_{number:02d}.1"
 
 
 #: Where each series starts. The naming sheet v2.0 (9 Oct 2026) fixes

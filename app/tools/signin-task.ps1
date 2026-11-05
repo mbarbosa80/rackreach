@@ -43,7 +43,7 @@ $xml = @"
 <?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>NER Spatial Coverage Analyzer - starts the server at sign-in, with no window (log in data\server.log)</Description>
+    <Description>RackReach - starts the server at sign-in, with no window (log in data\server.log)</Description>
   </RegistrationInfo>
   <Triggers>
     <LogonTrigger>

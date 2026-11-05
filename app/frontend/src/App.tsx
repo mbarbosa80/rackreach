@@ -261,7 +261,7 @@ export default function App() {
       <aside className="sidebar">
         <button className="rail-toggle open" onClick={toggleNav} title={t("Hide the menu")}
                 aria-label={t("Hide the menu")}>«</button>
-        <h1>{t("NER Spatial Coverage Analyzer")}</h1>
+        <h1>{t("RackReach")}</h1>
         <div className="sub">{t("TER / NER placement and coverage study")}</div>
         <div className="sub version" title={`${t("interface")} ${__APP_VERSION__}`}>
           {t("version")} {serverVersion || __APP_VERSION__}

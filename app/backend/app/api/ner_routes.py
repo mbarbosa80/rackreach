@@ -494,7 +494,8 @@ def export_snapshot(project_id: int, snapshot_id: int, fmt: str,
     items = (snap.payload or {}).get("change_items", [])
     register = (snap.payload or {}).get("register", [])
     keys = [k for k, _h in R.CHANGE_COLUMNS]
-    headers = [h for _k, h in R.CHANGE_COLUMNS]
+    from ..edition import term
+    headers = [term(h) for _k, h in R.CHANGE_COLUMNS]
     stem = f"{snap.kind}-{snap.id}"
 
     def cell(item: dict, key: str):

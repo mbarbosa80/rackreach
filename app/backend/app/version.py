@@ -68,7 +68,9 @@ def read_build(version: str | None = None) -> str:
 
 
 __build__ = read_build()
-APP_NAME = "NER Spatial Coverage Analyzer"
+APP_NAME = "RackReach"
+#: The name the application carried up to 5.3.0.
+FORMER_NAME = "NER Spatial Coverage Analyzer"
 AUTHOR = "Marcelo Barbosa"
 #: Free software since 4.3.0 (GNU AGPL-3.0). The credit to the author is an
 #: additional term of the licence (section 7(b), see NOTICE.txt): it stays on

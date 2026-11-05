@@ -1,5 +1,5 @@
 #!/bin/bash
-# NER Spatial Coverage Analyzer - start the server (macOS)
+# RackReach - start the server (macOS)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 LABEL="com.marcelobarbosa.ner-analyzer"

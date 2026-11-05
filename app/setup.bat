@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM  NER Spatial Coverage Analyzer - one-step setup (Windows)
+REM  RackReach - one-step setup (Windows)
 REM
 REM  Run this file after unzipping the package (right-click > Run as
 REM  administrator; a plain double-click asks Windows for the rights itself).
@@ -39,7 +39,7 @@ REM       from vendor\wheels, and the check that every component loads;
 REM    4. autostart.bat there - the sign-in task and the watchdog, both set to
 REM       survive a laptop on battery - and starts the server through that
 REM       task, so it belongs to no window and to no session;
-REM    5. waits for http://localhost:8000/healthz, puts an "NER Analyzer"
+REM    5. waits for http://localhost:8000/healthz, puts a "RackReach"
 REM       shortcut on the desktop and opens the browser;
 REM    6. removes vendor\ from the target (about 100 MB of installation payload
 REM       the running application never reads), then, once this window has
@@ -73,7 +73,7 @@ set VER=unknown
 if exist VERSION set /p VER=<VERSION
 
 echo.
-echo   NER Spatial Coverage Analyzer %VER% - setup
+echo   RackReach %VER% - setup
 echo   ============================================
 echo.
 
@@ -430,8 +430,8 @@ REM not with this window's administrator rights.
 start "" explorer.exe "%URL%/"
 :shortcut
 REM A desktop shortcut that opens the application in the default browser.
-"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "$d = [Environment]::GetFolderPath('Desktop'); if ($d) { Set-Content -LiteralPath (Join-Path $d 'NER Analyzer.url') -Value @('[InternetShortcut]', ('URL=' + $env:URL + '/')) -Encoding ASCII }" >nul 2>nul
-echo         Desktop shortcut: NER Analyzer
+"%PS%" -NoProfile -ExecutionPolicy Bypass -Command "$d = [Environment]::GetFolderPath('Desktop'); if ($d) { Remove-Item -LiteralPath (Join-Path $d 'NER Analyzer.url') -ErrorAction SilentlyContinue; Set-Content -LiteralPath (Join-Path $d 'RackReach.url') -Value @('[InternetShortcut]', ('URL=' + $env:URL + '/')) -Encoding ASCII }" >nul 2>nul
+echo         Desktop shortcut: RackReach
 
 REM --- Clean up: vendor\ in the target, then the package and the zip ----------
 :cleanup
@@ -496,7 +496,7 @@ if exist "%TARGET%.updating" del /f /q "%TARGET%.updating" >nul 2>nul
 REM One line per redirection: a "(1)" in a path - Windows numbers duplicate
 REM downloads that way - would end a parenthesised block early.
 set "LOG=%TARGET%\data\setup.log"
->  "%LOG%" echo NER Spatial Coverage Analyzer %VER% - setup %DATE% %TIME%
+>  "%LOG%" echo RackReach %VER% - setup %DATE% %TIME%
 >> "%LOG%" echo mode      %MODE%
 >> "%LOG%" echo package   "%SRC%"
 >> "%LOG%" echo target    "%TARGET%"
@@ -509,12 +509,12 @@ echo    Installed - version %VER%
 echo.
 echo    Folder:   %TARGET%
 if defined SERVICES if defined AUTOSTART_OK (
-  echo    Open:     %URL%   ^(or the "NER Analyzer" desktop shortcut^)
+  echo    Open:     %URL%   ^(or the "RackReach" desktop shortcut^)
   echo              The server runs with no window, starts by itself at
   echo              sign-in, and the watchdog restarts it if it ever stops.
 )
 if defined SERVICES if not defined AUTOSTART_OK (
-  echo    Open:     %URL%   ^(or the "NER Analyzer" desktop shortcut^)
+  echo    Open:     %URL%   ^(or the "RackReach" desktop shortcut^)
   echo    [*] It is running now, but it may NOT start by itself after a
   echo        restart ^(see the messages above^). Until that is fixed, start it
   echo        with tools\server-start.cmd in the folder above.

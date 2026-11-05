@@ -1,5 +1,5 @@
 #!/bin/bash
-# NER Spatial Coverage Analyzer - forgot the password? Set a new one (macOS).
+# RackReach - forgot the password? Set a new one (macOS).
 # Same tool as reset-password.bat: lists the accounts, asks which one and the
 # new password twice. Works with the app running.
 set -u

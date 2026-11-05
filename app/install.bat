@@ -1,6 +1,6 @@
 @echo off
 REM ===========================================================================
-REM  NER Spatial Coverage Analyzer - installer (Windows)
+REM  RackReach - installer (Windows)
 REM
 REM  Run this once, after unzipping. It needs NO internet, NO administrator
 REM  rights and NO Python on the computer: the package carries its own Python
@@ -42,7 +42,7 @@ set VER=unknown
 if exist VERSION set /p VER=<VERSION
 
 echo.
-echo   NER Spatial Coverage Analyzer %VER% - installation
+echo   RackReach %VER% - installation
 echo   ==================================================
 echo.
 

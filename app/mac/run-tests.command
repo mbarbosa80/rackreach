@@ -1,5 +1,5 @@
 #!/bin/bash
-# NER Spatial Coverage Analyzer - run the automated tests (macOS)
+# RackReach - run the automated tests (macOS)
 set -u
 ROOT="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$ROOT" || exit 1

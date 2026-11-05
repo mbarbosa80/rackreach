@@ -51,7 +51,7 @@ def main() -> int:
                          header_template="<span></span>",
                          footer_template=(
                              '<div style="font-size:8px;color:#888;width:100%;text-align:center;'
-                             'font-family:sans-serif">NER Spatial Coverage Analyzer &middot; '
+                             'font-family:sans-serif">RackReach &middot; '
                              '&copy; 2026 Marcelo Barbosa &middot; '
                              '<span class="pageNumber"></span> / <span class="totalPages"></span></div>'))
                 print(f"wrote {out} ({out.stat().st_size / 1e6:.2f} MB)")

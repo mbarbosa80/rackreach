@@ -283,7 +283,7 @@ def test_the_viewer_offers_the_three_new_references_and_the_area_tool_apart():
     for tool, kind in (("add-ter-ref", "TER_REF"), ("add-cow-ref", "COW_REF"),
                        ("add-diva-ref", "DIVA_REF")):
         assert f'"{tool}": "{kind}"' in viewer
-    for label in ('"*TER"', '"*COW"', '"*DIVA"', '"+area"'):
+    for label in ('"*ER"', '"*COW"', '"*AV"', '"+area"'):  # 5.4.0 public labels
         assert label in viewer
     # The illustrative group is styled apart from the +NER tools.
     assert 'ILLUSTRATIVE_TOOLS' in viewer and 'className={`tool-group ${gi === 4 ? "illustrative"' in viewer

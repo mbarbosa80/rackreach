@@ -366,7 +366,7 @@ def read_manifest(path: Path) -> dict:
         try:
             info = z.getinfo("manifest.json")
         except KeyError:
-            raise TransferError("this .zip is not a project package of the NER Analyzer "
+            raise TransferError("this .zip is not a project package of RackReach "
                                 "(it has no manifest). Nothing was imported.") from None
         if info.file_size > 16 << 20:
             raise TransferError("the package's manifest is too large. Nothing was imported.")
@@ -375,15 +375,15 @@ def read_manifest(path: Path) -> dict:
         except (ValueError, UnicodeDecodeError):
             raise TransferError("the package's manifest is damaged. Nothing was imported.") from None
     if not isinstance(m, dict) or m.get("format") != FORMAT:
-        raise TransferError("this .zip is not a project package of the NER Analyzer. "
+        raise TransferError("this .zip is not a project package of RackReach. "
                             "Nothing was imported.")
     fv = m.get("format_version")
     if not isinstance(fv, int) or fv > FORMAT_VERSION:
-        raise TransferError(f"this package was written by a newer NER Analyzer "
+        raise TransferError(f"this package was written by a newer RackReach "
                             f"({m.get('app_version', '?')}) in a format this one ({__version__}) "
                             f"cannot read — update the app on this computer, then import it.")
     if _version_tuple(str(m.get("app_version", ""))) > _version_tuple(__version__):
-        raise TransferError(f"this package was exported by NER Analyzer {m.get('app_version')}; "
+        raise TransferError(f"this package was exported by RackReach {m.get('app_version')}; "
                             f"this computer runs {__version__}. Update the app here first, then "
                             f"import it — an older version would drop what it does not know.")
     if not isinstance(m.get("files"), list) or not isinstance(m.get("project"), dict):

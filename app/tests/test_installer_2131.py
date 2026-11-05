@@ -96,7 +96,7 @@ def test_setup_opens_the_browser_unelevated_and_writes_a_desktop_shortcut():
     code = _code("setup.bat")
     assert 'start "" explorer.exe "%URL%/"' in code
     assert 'start "" "%URL%/"' not in code, "an elevated window would open an elevated browser"
-    assert "GetFolderPath('Desktop')" in code and "NER Analyzer.url" in code
+    assert "GetFolderPath('Desktop')" in code and "RackReach.url" in code
     assert "[InternetShortcut]" in code
     # The shortcut belongs to the services path, not to --no-services.
     assert code.index("\n:shortcut") > code.index("\n:services")
@@ -161,7 +161,7 @@ def test_the_old_bilingual_names_are_gone():
 def test_the_installation_manual_describes_the_new_installer():
     text = _read("docs/INSTALL.html")
     for needle in ("Run as administrator", "ner-analyzer.previous", "another account",
-                   "NER Analyzer", "Firefox", "Edge", "Chrome", "Unblock",
+                   "RackReach", "Firefox", "Edge", "Chrome", "Unblock",
                    "handing over to setup.bat"):
         assert needle in text, needle
     quick = _read("INSTALL.txt")

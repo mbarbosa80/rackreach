@@ -99,7 +99,7 @@ def backup(dest_root: Path) -> Path:
     size = (dest / "ner.sqlite3").stat().st_size
     matrix_line = "criticality matrix included" if has_matrix else "no criticality matrix"
     (dest / "BACKUP.txt").write_text(
-        f"NER Spatial Coverage Analyzer {_version()}\n"
+        f"RackReach {_version()}\n"
         f"backup taken {stamp}\n"
         f"database {size / 1e6:.1f} MB, {n_files} uploaded file(s), {matrix_line}\n"
         f"restore with:  backup.bat --restore \"{dest}\"\n"

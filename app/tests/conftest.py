@@ -21,6 +21,11 @@ import tempfile
 # tests/test_composite_speed_512.py turns it on, for the tests about it.
 os.environ.setdefault("NER_DRAW_AHEAD", "0")
 
+# 5.4.0: the suite describes the team edition; inside a public installation
+# (EDITION = public) it must still read the same words. The public words have
+# their own test, which pins the public edition itself.
+os.environ.setdefault("RR_EDITION", "team")
+
 _made: list[str] = []
 _mkdtemp = tempfile.mkdtemp
 

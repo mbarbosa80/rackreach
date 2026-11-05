@@ -81,17 +81,17 @@ const ADD_KIND: Record<string, string> = {
 
 const TOOL_LABEL: Record<string, string> = {
   "select": "select",
-  "add-ner-critical": "+NER★",
-  "add-ner": "+NER",
-  "add-ter": "+TER",
+  "add-ner-critical": "+RK★",
+  "add-ner": "+RK",
+  "add-ter": "+ER",
   "add-idf": "+IDF",
   "add-cow": "+COW",
-  "add-diva": "+DIVA",
-  "add-ner-ref-critical": "*NER★",
-  "add-ner-ref": "*NER",
-  "add-ter-ref": "*TER",
+  "add-diva": "+AV",
+  "add-ner-ref-critical": "*RK★",
+  "add-ner-ref": "*RK",
+  "add-ter-ref": "*ER",
   "add-cow-ref": "*COW",
-  "add-diva-ref": "*DIVA",
+  "add-diva-ref": "*AV",
   // A named area: click the corners, double-click (or Enter) to close it,
   // name it. Illustrative — "BTOC", "TER", a compound — never counted.
   "area": "+area",
@@ -659,7 +659,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
         // A TER, COW or DIVA reference is simply named. The tool stays
         // armed: a key plan gets every room pointed at in one go.
         const label = NER_REFERENCE_KINDS.has(kind)
-          ? (refName || prompt(t("Name of the NER this reference points at"), "NER") || "")
+          ? (refName || prompt(t("Name of the NER this reference points at"), "RK") || "")
           : (prompt(t("Name of the room this reference points at"), REF_DEFAULT_LABEL[kind] || kind) || "");
         if (!label.trim()) return;
         const made = await api.createElement(p.id, { page, kind, label: label.trim(), x: pt.x, y: pt.y });
@@ -673,12 +673,12 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
       }
       // A NER is offered the next name of its series (2.14.0) — NERc03,
       // NER07 — computed from the register; anything typed over it stands.
-      let proposed = kind === "DIVA" ? "DIVA Node" : kind;
+      let proposed = kind === "DIVA" ? "AV node" : kind === "TER" ? "Equipment room" : kind;
       if (kind === "NER_CRITICAL" || kind === "NER_NONCRITICAL") {
         try {
           const nx = await api.nextNerName(p.id);
           proposed = kind === "NER_CRITICAL" ? nx.critical : nx.non_critical;
-        } catch { proposed = kind === "NER_CRITICAL" ? "NERc" : "NER"; }
+        } catch { proposed = kind === "NER_CRITICAL" ? "RKc" : "RK"; }
       }
       let label = prompt(t("Label for the new element"), proposed);
       if (!label) return;

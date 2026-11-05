@@ -26,7 +26,8 @@ import { DISCLAIMER } from "./notation";
 
 export const PT: Record<string, string> = {
   // --- shell, navigation, top bar -----------------------------------------
-  "NER Spatial Coverage Analyzer": "NER Spatial Coverage Analyzer",
+  "RackReach": "RackReach",
+  "TER / IDF / COW / DIVA": "TER / IDF / COW / DIVA",
   "TER / NER placement and coverage study": "Estudo de posicionamento e cobertura de TER / NER",
   "Projects": "Projetos",
   "Import": "Importação",
@@ -1653,8 +1654,8 @@ export const PT: Record<string, string> = {
     "recusado",
   "cancelled":
     "cancelado",
-  "a project package is a .zip file exported by the NER Analyzer":
-    "um pacote de projeto é um arquivo .zip exportado pelo NER Analyzer",
+  "a project package is a .zip file exported by RackReach (formerly NER Analyzer)":
+    "um pacote de projeto é um arquivo .zip exportado pelo RackReach (antigo NER Analyzer)",
   "package not found":
     "pacote não encontrado",
   "package not found — export the project again":

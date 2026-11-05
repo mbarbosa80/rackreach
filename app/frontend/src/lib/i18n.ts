@@ -37,6 +37,7 @@
  */
 
 import { PT } from "./strings.pt";
+import { publicTerms } from "./publicTerms";
 
 export type Lang = "en" | "pt";
 
@@ -83,8 +84,9 @@ export function onLangChange(fn: () => void): () => void {
  * cosmetic gap and never a broken screen.
  */
 export function t(english: string): string {
-  if (current === "en") return english;
-  return PT[english] ?? english;
+  // 5.4.0: the public edition's words (rack, equipment room, demand list…).
+  if (current === "en") return publicTerms(english, "en");
+  return publicTerms(PT[english] ?? english, "pt");
 }
 
 /**

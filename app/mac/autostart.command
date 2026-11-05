@@ -1,5 +1,5 @@
 #!/bin/bash
-# NER Spatial Coverage Analyzer - register the server for this account (macOS)
+# RackReach - register the server for this account (macOS)
 # (c) 2026 Marcelo Barbosa. Free software, GNU AGPL-3.0 - see LICENSE.txt and NOTICE.txt.
 #
 # Writes ~/Library/LaunchAgents/com.marcelobarbosa.ner-analyzer.plist and loads

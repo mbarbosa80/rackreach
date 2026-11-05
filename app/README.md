@@ -1,10 +1,10 @@
-# NER Spatial Coverage Analyzer
+# RackReach
 
 **Version 4.5.0** — the number lives in `VERSION`; see `CHANGELOG.md` for the
 numbering rule and the release steps.
 
-A working web application for studying **TER / NER placement and network coverage**
-from venue design drawings and a TEAP allocation plan.
+A working web application for studying **equipment room / rack placement and network coverage**
+from venue design drawings and a demand list allocation plan.
 
 It reads real PDFs and real spreadsheets, computes real distances against real
 rules, and exports marked-up drawings and auditable workbooks. It is a *screening
@@ -67,7 +67,7 @@ table, when the builder has them. The **public edition**
 `ner-analyzer-<version>-public-windows.zip` / `...-public-macos-arm64.zip`)
 leaves that folder out and refuses to build while any shipped text names an
 event, an organiser, a venue or an employer. The application works the same
-without the private material: the TEAP names alone filter name-only room
+without the private material: the demand list names alone filter name-only room
 labels, and the Naming panel shows the application's own naming rule.
 
 ---
@@ -81,14 +81,14 @@ The left-hand navigation is the workflow, in order.
 | # | Step | What happens |
 |---|------|--------------|
 | — | **Projects** | Create, open, share (read-only) and delete projects. One project is one venue. |
-| 1 | **Import** | Upload the VDB PDF and the TEAP workbook. The PDF is parsed for the title block, scales, spaces and markers; the workbook is profiled (every sheet, header row, proposed column mapping) and its venues are listed so you import one venue, not the whole programme. Project rules (limits, near-limit band, slack factor, units). |
+| 1 | **Import** | Upload the design book PDF and the demand list workbook. The PDF is parsed for the title block, scales, spaces and markers; the workbook is profiled (every sheet, header row, proposed column mapping) and its venues are listed so you import one venue, not the whole programme. Project rules (limits, near-limit band, slack factor, units). |
 | 2 | **Scale** | Detected scales are proposals. Confirm each page (or all pages that have one) — definitive results stay blocked until you do. |
-| 3 | **Drawing viewer** | Pan/zoom the real PDF; create, move, rename and delete NER, TER, IDF, COW and DIVA node markers; trace cable routes; register shafts; paint the coverage overlay. |
-| 4 | **NERs** | One row per **physical** equipment room, however many sheets draw it: rename without changing the identifier, criticality, capacity, lock, confirm, remove/restore; duplicate queue with evidence; consolidation history with undo. |
-| 5 | **TEAP × drawing** | Match TEAP locations to drawing spaces (exact code → base code → name → similarity → context), choose and confirm one by one; decisions live on the TEAP line and survive re-runs. |
-| 6 | **Demand per space** | Run the analysis; port demand per space, the serving NER (TEAP → your choice → nearest with free ports → nearest anyway, flagged), distance, status, notes, NER load and capacity. |
-| 7 | **Exceptions** | Spaces no NER covers or that could not be analysed, and TEAP lines with no room on the drawing. |
-| 8 | **Reports** | Marked-up PDF (legend and NER → space lines optional), analysis workbook, coverage CSV — all stamped with the version. |
+| 3 | **Drawing viewer** | Pan/zoom the real PDF; create, move, rename and delete rack, equipment room, IDF, COW and AV network node markers; trace cable routes; register shafts; paint the coverage overlay. |
+| 4 | **racks** | One row per **physical** equipment room, however many sheets draw it: rename without changing the identifier, criticality, capacity, lock, confirm, remove/restore; duplicate queue with evidence; consolidation history with undo. |
+| 5 | **Demand × drawing** | Match demand list locations to drawing spaces (exact code → base code → name → similarity → context), choose and confirm one by one; decisions live on the demand list line and survive re-runs. |
+| 6 | **Demand per space** | Run the analysis; port demand per space, the serving rack (demand list → your choice → nearest with free ports → nearest anyway, flagged), distance, status, notes, rack load and capacity. |
+| 7 | **Exceptions** | Spaces no rack covers or that could not be analysed, and demand list lines with no room on the drawing. |
+| 8 | **Reports** | Marked-up PDF (legend and rack → space lines optional), analysis workbook, coverage CSV — all stamped with the version. |
 | — | **Account & security** | Accounts, administration, the audit log and the data statement. |
 
 ---
@@ -96,17 +96,17 @@ The left-hand navigation is the workflow, in order.
 ## The rules it applies
 
 * A network port, connected device or access point must be within **90 m** of the
-  NER that serves it.
+  Rack that serves it.
 * A photographer point or area must be within **70 m**.
 * Both limits are editable per project.
 * When a cable route is traced, the route length governs. When it is not, the
   straight-line distance is used and every result carries the warning
   *"Preliminary straight-line distance. The result must be validated against the
   real cable route."*
-* A NER never serves another floor unless a shaft, riser or vertical route has
+* A rack never serves another floor unless a shaft, riser or vertical route has
   been registered.
-* A **TER is recorded and drawn but never auto-assigned** to serve a functional
-  area. The TER↔NER relationship is a separate design rule the tool does not
+* A **equipment room is recorded and drawn but never auto-assigned** to serve a functional
+  area. The equipment room↔rack relationship is a separate design rule the tool does not
   invent.
 * Where a room polygon exists, compliance is evaluated against its **farthest
   vertex**, not only its centre.
@@ -171,11 +171,11 @@ Every element, match and result carries which one it is. Exports state it per ro
 
 | Symbol | Meaning |
 |--------|---------|
-| Blue dot | TER |
-| Red dot | NER — critical |
-| Yellow dot | NER — non critical |
-| Purple dashed circle | NER — proposed |
-| Grey crossed circle | NER — spatial redundancy candidate |
+| Blue dot | equipment room |
+| Red dot | rack — critical |
+| Yellow dot | rack — non critical |
+| Purple dashed circle | rack — proposed |
+| Grey crossed circle | rack — spatial redundancy candidate |
 | Green translucent | Area served |
 | Orange translucent | Area near the limit |
 | Red translucent | Area out of coverage |
@@ -203,9 +203,9 @@ how the *application* draws its own normalised output.
 About 470 tests covering the mandatory cases: 89 m passes / 91 m fails, 69 m passes /
 71 m fails, metric and imperial scales, pages at different scales, multi-sheet
 workbooks, exact / similar / ambiguous names, double-counting prevention, a plan
-with no NER, uncovered areas, overlapping NERs, insufficient capacity,
-redundancy preservation, NERs on different floors, route length differing from the
-straight line, scanned and vector PDFs, TER/critical/non-critical identification —
+with no rack, uncovered areas, overlapping racks, insufficient capacity,
+redundancy preservation, racks on different floors, route length differing from the
+straight line, scanned and vector PDFs, equipment room/critical/non-critical identification —
 plus the real-document regressions and the four defects found in live use, all
 described in docs/FINDINGS.md.
 
@@ -217,7 +217,7 @@ python run.py --sample
 
 Generates `sample_data/synthetic_venue_plan.pdf`, `synthetic_venue_scanned.pdf`
 and `synthetic_teap.xlsx`. They mirror the *structure* of real documents — the
-same space-code taxonomy, the same "Critical NER n" labelling, a workbook whose
+same space-code taxonomy, the same "Critical rack n" labelling, a workbook whose
 header is not on row 1 — with no real content, so the tests and demos never touch
 confidential material.
 
@@ -232,9 +232,9 @@ backend/app/
   main.py                  ASGI app; serves the compiled front-end
   config.py  db.py  models.py  services.py
   api/routes.py            HTTP API (thin: parse, persist, dispatch)
-  api/ner_routes.py        HTTP API for the NER register (V2)
+  api/ner_routes.py        HTTP API for the rack register (V2)
   migrate.py               V1 -> V2 schema and data migration, idempotent
-  ner_register.py          the canonical NER register and its decisions (V2)
+  ner_register.py          the canonical rack register and its decisions (V2)
   ner_suggest.py           optimiser output -> suggested register rows (V2)
   domain/                  everything that decides a number
     units.py               scale parsing, metric/imperial, calibration
@@ -244,7 +244,7 @@ backend/app/
     pdf_ingest.py          vector PDF extraction, multi-signal classification
     teap_import.py         workbook profiling and column mapping
     demand.py              port demand, rules A–D, no double counting
-    matching.py            TEAP × drawing matching cascade
+    matching.py            Demand × drawing matching cascade
     consolidation.py       is this the same physical room? (V2)
     coverage.py            assignment, capacity, redundancy
     reports.py             marked-up PDF and audit workbook
@@ -254,16 +254,16 @@ tests/                     pytest suite
 docs/                      decisions, findings, limitations
 ```
 
-## V2 — the NER register
+## V2 — the rack register
 
 V1 recorded one row per marker found on a page. A venue design book draws the
 same equipment room on the level key plan, on a zone detail and again on a
-services overlay, so `Critical NER 3` became three rooms — and every number that
+services overlay, so `Critical rack 3` became three rooms — and every number that
 followed inherited the error.
 
 V2 separates **the room** from **the document that draws it**:
 
-* a **canonical NER** (`ner_assets`) owns the name, the classification, the
+* a **canonical rack** (`ner_assets`) owns the name, the classification, the
   keep/reject decision, the capacity and the position. Its internal id and its
   register code never change — renaming writes a new display name and appends to
   the name history, so a report exported last month still resolves to the room it
@@ -277,7 +277,7 @@ V2 separates **the room** from **the document that draws it**:
 An identical label is not enough — venues reuse a numbering series across
 buildings. Two occurrences are linked without asking only when the normalised
 label, the level **and** the building all agree. A conflict on level or building
-disqualifies the pair however well the labels match; `NER 4` and `NER 5` are two
+disqualifies the pair however well the labels match; `rack 4` and `rack 5` are two
 rooms by definition; and an *unknown* level is treated as a question, not an
 agreement, so the pair lands in the review queue instead of being assumed.
 
@@ -288,10 +288,10 @@ and reversed exactly like one a person made.
 The duplicate queue shows **evidence and differences side by side**. A reviewer
 shown only the reasons to merge will merge.
 
-### Suggested NERs are questions
+### Suggested racks are questions
 
 The solver answers a geometric question, which is not the same question as "where
-can a NER go". A suggestion enters the register with status `suggested`, is
+can a rack go". A suggestion enters the register with status `suggested`, is
 excluded from the As-Is analysis until someone confirms it, and carries the full
 justification: why, which areas it would serve, total demand, longest serving
 distance, how many areas were out of coverage before and after, the constraints
@@ -301,7 +301,7 @@ found, what still needs validating, and that it depends on the TVDB.
 
 Nothing to run. Opening the database performs the migration, and it is idempotent
 — a second start finds every marker already linked and does nothing. Verified
-against a real venue design book (VEE): 26 markers → 26 canonical NERs, 3
+against a real venue design book (VEE): 26 markers → 26 canonical racks, 3
 duplicate questions raised for a human, and coverage **identical** to V1 down to
 the status histogram (2 873 spaces, 988 served, 1 885 uncovered, 21 434 ports).
 
@@ -310,10 +310,10 @@ back what it never had.
 
 ### One drawing version per project, for now
 
-Do **not** upload a revised VDB into a project that already has one. Page numbers
+Do **not** upload a revised design book into a project that already has one. Page numbers
 are scoped to the project rather than to the document, so the two versions
 collide and the coverage engine silently measures across them. Create a new
-project for the revision and carry the NER register over as an XLSX export.
+project for the revision and carry the rack register over as an XLSX export.
 
 The full design for proper versioning — page namespacing, a frozen change
 request, and a reconciliation screen answering *"did they draw what I asked?"* —
@@ -323,7 +323,7 @@ is written up in `docs/VERSIONING.md`. It is proposed, not built.
 
 No TVDB. Containment, pathways, Route A / Route B, shafts, risers and shared-risk
 segments are **not analysed** — the register says `not_analysed` for each rather
-than implying a route exists, and every NER carries *"no TVDB route validated"* as
+than implying a route exists, and every rack carries *"no TVDB route validated"* as
 a pending validation. Every distance in the tool is still a straight-line
 screening number. See `docs/LIMITATIONS.md`.
 

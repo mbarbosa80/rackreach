@@ -375,7 +375,7 @@ async def import_project(file: UploadFile = File(...), name: str = Query(""),
 
     from .. import transfer as TR
     if not (file.filename or "").lower().endswith(".zip"):
-        raise HTTPException(422, "a project package is a .zip file exported by the NER Analyzer")
+        raise HTTPException(422, "a project package is a .zip file exported by RackReach (formerly NER Analyzer)")
     inbox = settings.data_dir / "imports"
     inbox.mkdir(parents=True, exist_ok=True)
     # A package left behind by a server stopped mid-import is cleared after a day.
