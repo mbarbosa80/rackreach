@@ -1,4 +1,4 @@
-/* NER Analyzer — site styles
+/* RackReach — site styles
    Self-hosted fonts only: the site makes no third-party requests except the contact form. */
 
 @font-face { font-family: "Archivo"; src: url("../fonts/archivo.woff2") format("woff2"); font-weight: 100 900; font-stretch: 62% 125%; font-display: swap; }

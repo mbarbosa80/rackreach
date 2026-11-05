@@ -4,8 +4,8 @@
   var cfg = window.SITE_CONFIG || {};
 
   var TITLES = {
-    en: "NER Analyzer — Every space, served from the right network rack",
-    pt: "NER Analyzer — Cada espaço, atendido pelo rack de rede certo"
+    en: "RackReach — Every space, served from the right network rack",
+    pt: "RackReach — Cada espaço, atendido pelo rack de rede certo"
   };
   var MSG = {
     en: {
@@ -103,7 +103,7 @@
   function mailtoHref(d) {
     var body = d.message + "\n\n— " + d.name + (d.organisation ? " (" + d.organisation + ")" : "") + "\n" + d.email;
     return "mailto:" + (cfg.contactEmail || "") +
-      "?subject=" + encodeURIComponent("[NER Analyzer] " + d.topic) +
+      "?subject=" + encodeURIComponent("[RackReach] " + d.topic) +
       "&body=" + encodeURIComponent(body);
   }
 
@@ -132,7 +132,7 @@
       topic: d.topic,
       message: d.message,
       language: lang(),
-      _subject: "[NER Analyzer site] " + d.topic + " — " + d.name,
+      _subject: "[RackReach site] " + d.topic + " — " + d.name,
       _replyto: d.email,
       _template: "table",
       _captcha: "false"
