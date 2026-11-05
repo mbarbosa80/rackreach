@@ -14,6 +14,7 @@ from typing import Iterable, Optional, Sequence
 
 import openpyxl
 import pymupdf
+from openpyxl.cell.cell import ILLEGAL_CHARACTERS_RE
 from openpyxl.styles import Alignment, Font, PatternFill
 from openpyxl.utils import get_column_letter
 
@@ -492,6 +493,28 @@ def _point_on(ner: Optional[NER], page: int, near) -> Optional[Point]:
     return ner.point if ner.point.page == page else None
 
 
+def export_marked_pdf_job(source_pdf: str, out_path: str, *,
+                          page_keys: Optional[dict] = None,
+                          sheet_labels: Optional[dict] = None,
+                          progress=None, **kwargs) -> dict:
+    """The entry point the server calls in a child interpreter (5.3.0).
+
+    Marking up a book is the same heavy PyMuPDF work as reading one, and it
+    left the server a few hundred megabytes heavier after every export, as
+    reading did before 2.17.0. ``isolate.run`` sends only plain data across,
+    so the two callables :func:`export_marked_pdf` takes are sent as tables
+    (``page_keys``: this file's page number -> sheet key; ``sheet_labels``:
+    sheet key -> name) and the positions found off their sheet come back in
+    the result instead of in a list the caller passed.
+    """
+    off: list = []
+    pk = (lambda n: page_keys.get(n, n)) if page_keys else None
+    st = (lambda k: sheet_labels.get(k, f"p. {k}")) if sheet_labels else None
+    export_marked_pdf(source_pdf, out_path, off_page=off, page_key=pk,
+                      sheet_text=st, progress=progress, **kwargs)
+    return {"out": out_path, "off_page": off}
+
+
 def export_marked_pdf(
     source_pdf: str,
     out_path: str,
@@ -790,6 +813,23 @@ _HEAD = Font(bold=True, color="FFFFFF")
 _HEAD_FILL = PatternFill("solid", fgColor="1F3864")
 
 
+#: The only formulas this workbook writes (rc6). Anything else that would
+#: reach a cell as a formula came from a name somebody typed.
+_OWN_FORMULA_RX = re.compile(r"^=(SUBTOTAL|SUM|IF)\(")
+
+
+def _safe(v):
+    """A text a person typed, made safe for a cell (rc6, findings N5/N6):
+    control characters that openpyxl refuses are dropped, and a leading
+    = + - @ is kept as text with an apostrophe instead of becoming a formula."""
+    if not isinstance(v, str):
+        return v
+    v = ILLEGAL_CHARACTERS_RE.sub("", v)
+    if v[:1] in ("=", "+", "@") and not _OWN_FORMULA_RX.match(v):
+        return "'" + v
+    return v
+
+
 def _write_sheet(ws, headers: list[str], rows: Iterable[Sequence]) -> None:
     ws.append(headers)
     for c in range(1, len(headers) + 1):
@@ -798,7 +838,7 @@ def _write_sheet(ws, headers: list[str], rows: Iterable[Sequence]) -> None:
         cell.fill = _HEAD_FILL
         cell.alignment = Alignment(vertical="center", wrap_text=True)
     for r in rows:
-        ws.append(list(r))
+        ws.append([_safe(v) for v in r])
     ws.freeze_panes = "A2"
     # A filter on every heading, on every sheet: the person opening this is
     # going to filter it (by NER, by status, by "Needs validation") before
@@ -836,6 +876,14 @@ def _natural_key(label: str):
             for t in re.split(r"(\d+)", label or "")]
 
 
+#: The line of a NER that serves no TEAP space yet on "TEAP by NER" (5.3.0 rc5).
+NO_SPACE_SERVED = "no TEAP space served by this NER yet"
+
+
+def _safe_row(values: list) -> list:
+    return [_safe(v) for v in values]
+
+
 def _write_teap_by_ner(ws, teap_rows: Sequence[tuple], critical_by_label: dict) -> None:
     """NER → space → product, with totals — the grouped twin of
     "TEAP and coverage".
@@ -850,6 +898,9 @@ def _write_teap_by_ner(ws, teap_rows: Sequence[tuple], critical_by_label: dict) 
       DWISA line, listed under the space like any other product. Each NER total
       therefore equals "Ports assigned" on "NERs and ports", and the grand total
       the Summary's "Total ports requested (TEAP)";
+    * every NER of the study is listed, also one that serves no TEAP space
+      yet: one grey line "no TEAP space served by this NER yet" and a total
+      of 0, so the sheet lists the same NERs as "NERs and ports" (5.3.0);
     * lines that count 0 ports (monitors, phones, TVs) are left out, and the
       count of them is stated under the total;
     * it is rebuilt on every export, so it can never miss rows the way a pivot
@@ -873,6 +924,14 @@ def _write_teap_by_ner(ws, teap_rows: Sequence[tuple], critical_by_label: dict) 
         groups.setdefault(ner, {}).setdefault((r[0] or "", r[1] or ""), []).append(
             (r[6] or "", r[7] or "", counted))
 
+    # 5.3.0 (rc5) - every NER of the study is listed, also one that serves no
+    # TEAP space yet (Marcelo, 4 Nov 2026: "mesmo ela nao atendendo nenhuma
+    # area naquele momento"). Until rc4 a NER with 0 ports was missing here
+    # while "NERs and ports" listed it - 75 NERs on 13 of his 15 projects.
+    for label in critical_by_label:
+        if label and label != PENDING_NER_LABEL:
+            groups.setdefault(label, {})
+
     order = sorted((k for k in groups if k != PENDING_NER_LABEL), key=_natural_key)
     if PENDING_NER_LABEL in groups:
         order.append(PENDING_NER_LABEL)
@@ -885,11 +944,17 @@ def _write_teap_by_ner(ws, teap_rows: Sequence[tuple], critical_by_label: dict) 
         crit_txt = "" if crit is None else ("yes" if crit else "no")
         ner_first = row
         space_total_rows = []
+        if not groups[ner]:
+            ws.append(_safe_row([ner, crit_txt, "", "", "", NO_SPACE_SERVED, 0]))
+            for c in range(3, 8):
+                ws.cell(row=row, column=c).font = _REPEAT_FONT
+            ws.row_dimensions[row].outline_level = 2
+            row += 1
         for (code, name), lines in sorted(groups[ner].items(),
                                           key=lambda kv: (kv[0][0] == "", kv[0][0], kv[0][1])):
             first = row
             for pcode, desc, ports in sorted(lines, key=lambda t: (t[0], t[1])):
-                ws.append([ner, crit_txt, code, name, pcode, desc, ports])
+                ws.append(_safe_row([ner, crit_txt, code, name, pcode, desc, ports]))
                 if row != ner_first:
                     for c in (1, 2):
                         ws.cell(row=row, column=c).font = _REPEAT_FONT
@@ -898,8 +963,8 @@ def _write_teap_by_ner(ws, teap_rows: Sequence[tuple], critical_by_label: dict) 
                         ws.cell(row=row, column=c).font = _REPEAT_FONT
                 ws.row_dimensions[row].outline_level = 2
                 row += 1
-            ws.append([ner, crit_txt, code, name, "", f"{name or code} total",
-                       f"=SUBTOTAL(9,G{first}:G{row - 1})"])
+            ws.append(_safe_row([ner, crit_txt, code, name, "", f"{name or code} total",
+                       f"=SUBTOTAL(9,G{first}:G{row - 1})"]))
             for c in range(1, 8):
                 cell = ws.cell(row=row, column=c)
                 cell.fill = _SPACE_TOTAL_FILL
@@ -907,8 +972,8 @@ def _write_teap_by_ner(ws, teap_rows: Sequence[tuple], critical_by_label: dict) 
             ws.row_dimensions[row].outline_level = 1
             space_total_rows.append(row)
             row += 1
-        ws.append([ner, crit_txt, "", "", "", f"{ner} total",
-                   f"=SUBTOTAL(9,G{ner_first}:G{row - 1})"])
+        ws.append(_safe_row([ner, crit_txt, "", "", "", f"{ner} total",
+                   f"=SUBTOTAL(9,G{ner_first}:G{row - 1})"]))
         for c in range(1, 8):
             cell = ws.cell(row=row, column=c)
             cell.fill = _NER_TOTAL_FILL
@@ -1395,6 +1460,8 @@ def export_workbook(
                     for r in match_rows if r.get("drawing_space_id") and not r.get("confirmed")]
         _write_sheet(ws, ["Exception type", "Code", "Name", "Detail"], ex_rows)
 
+    _write_reconciliation(wb.create_sheet("Reconciliation"), coverage, demands, left_out)
+
     ws = wb.create_sheet("Scales")
     _write_sheet(ws, ["Page", "Scale label", "Source", "Metres per PDF unit", "Confirmed"],
                  ((pc(p), s.label, s.source, s.metres_per_unit, "yes" if s.confirmed else "no")
@@ -1405,13 +1472,92 @@ def export_workbook(
     return out_path
 
 
+def _write_reconciliation(ws, coverage: CoverageResult, demands: Sequence,
+                          left_out: Optional[Sequence[tuple]]) -> None:
+    """The TEAP's totals against the analysis's, and why they differ (5.3.0).
+
+    Marcelo, 16 Oct 2026: "Os totais precisam bater sempre... e qdo não bater
+    temos que entender pq não batem. Vc não cria produto novo, segue o TEAP."
+    Every TEAP space that requests ports is either on a NER or pending; the
+    two add up to the TEAP's total, and the NERs' load adds up to what is on a
+    NER. Each check says *OK* or names the difference, and the rows under it
+    list the spaces behind any difference, so nothing has to be taken on trust.
+    """
+    teap = {d.space_key: d for d in demands}
+    rows_by_key: dict[str, object] = {}
+    for a in coverage.assignments:
+        if a.area.meta.get("kind") == "wireless_point":
+            continue
+        rows_by_key.setdefault(a.space_key, a)
+    in_both = [k for k in teap if k in rows_by_key]
+    missing = [k for k in teap if k not in rows_by_key]
+    extra = [k for k in rows_by_key if k not in teap]
+    t_ports = sum(float(d.total_ports or 0) for d in teap.values())
+    a_ports = sum(float(rows_by_key[k].ports_required or 0) for k in in_both)
+    on_ner = [rows_by_key[k] for k in in_both if rows_by_key[k].ner_key]
+    pending = [rows_by_key[k] for k in in_both if not rows_by_key[k].ner_key]
+    on_ner_ports = sum(float(a.ports_required or 0) for a in on_ner)
+    pending_ports = sum(float(a.ports_required or 0) for a in pending)
+    load_ports = sum(float(v.get("assigned_ports") or 0) for v in coverage.ner_load.values())
+
+    def _check(a, b) -> str:
+        return "OK" if abs(float(a) - float(b)) < 0.01 else f"differs by {float(a) - float(b):g}"
+
+    def _n(x) -> float:
+        return round(float(x), 2)
+
+    out = [
+        ("Spaces that request ports", len(teap), len(in_both), _check(len(teap), len(in_both)),
+         "every TEAP space with ports must be in the analysis"),
+        ("Ports requested", _n(t_ports), _n(a_ports), _check(t_ports, a_ports),
+         "the analysis counts each space's TEAP total, never a port of its own"),
+        ("Ports on a NER + ports pending", _n(t_ports), _n(on_ner_ports + pending_ports),
+         _check(t_ports, on_ner_ports + pending_ports),
+         f"{_n(on_ner_ports)} on a NER + {_n(pending_ports)} pending"),
+        ("Ports on a NER = sum of the NERs' load", _n(on_ner_ports), _n(load_ports),
+         _check(on_ner_ports, load_ports), "the NERs and ports sheet adds up to this"),
+        ("TEAP spaces with no ports (not analysed)", len(left_out or []), "", "",
+         "listed on their own sheet"),
+    ]
+    out.append(("", "", "", "", ""))
+    out.append(("Pending ports, by reason", "Spaces", "Ports", "", ""))
+    reasons: dict[str, list] = {}
+    for a in pending:
+        why = (PENDING_NO_ROOM if a.area.meta.get("unplaced")
+               else STATUS_WORDS.get(a.status, a.status.value if a.status else ""))
+        reasons.setdefault(why, []).append(a)
+    for why, items in sorted(reasons.items(), key=lambda kv: -sum(
+            float(a.ports_required or 0) for a in kv[1])):
+        out.append((f"  {why}", len(items), _n(sum(float(a.ports_required or 0) for a in items)),
+                    "", ", ".join(sorted({a.space_name for a in items}))[:500]))
+    if missing or extra:
+        out.append(("", "", "", "", ""))
+    for k in missing:
+        d = teap[k]
+        out.append(("In the TEAP, not in the analysis", d.space_code or k, _n(d.total_ports or 0),
+                    "", f"{d.space_name} - run the analysis again"))
+    for k in extra:
+        a = rows_by_key[k]
+        out.append(("In the analysis, not in the TEAP", k, _n(a.ports_required or 0), "",
+                    f"{a.space_name} - the TEAP changed after the last analysis"))
+    for k in in_both:
+        d, a = teap[k], rows_by_key[k]
+        if abs(float(d.total_ports or 0) - float(a.ports_required or 0)) >= 0.01:
+            out.append(("Ports differ for a space", d.space_code or k,
+                        f"TEAP {_n(d.total_ports or 0)}", f"analysis {_n(a.ports_required or 0)}",
+                        f"{d.space_name} - run the analysis again"))
+    _write_sheet(ws, ["Check", "TEAP", "Analysis", "Result", "Note"], out)
+    ws.column_dimensions["A"].width = 44
+    ws.column_dimensions["E"].width = 70
+
+
 #: The order of the sheets and the colour of their tabs (Marcelo, 16 Oct
 #: 2026, from a screenshot of the tab bar): the three the network team works
 #: from first — "TEAP by NER" red, "NERs and ports" and "Wireless points"
 #: yellow — then the rest with no colour. A sheet a run did not write is
 #: skipped; one not named here goes last.
 SHEET_ORDER = ["TEAP by NER", "NERs and ports", "Wireless points", "Summary",
-               "TEAP and coverage", "Matching", "Match exceptions", "Exceptions",
+               "Reconciliation", "TEAP and coverage", "Matching", "Match exceptions", "Exceptions",
                "TEAP spaces with no ports", "Scales", "Coverage figures"]
 TAB_YELLOW = "FFFF00"
 TAB_RED = "FF0000"
@@ -1420,6 +1566,13 @@ SHEET_TAB_COLOUR = {"TEAP by NER": TAB_RED, "NERs and ports": TAB_YELLOW,
 
 
 def _order_and_colour_sheets(wb) -> None:
+    for ws in wb.worksheets:
+        for row in ws.iter_rows():
+            for cell in row:
+                if cell.data_type == "f" and isinstance(cell.value, str) \
+                        and not _OWN_FORMULA_RX.match(cell.value):
+                    cell.value = "'" + cell.value
+                    cell.data_type = "s"
     rank = {name: i for i, name in enumerate(SHEET_ORDER)}
     wb._sheets.sort(key=lambda ws: rank.get(ws.title, len(SHEET_ORDER)))
     for i, ws in enumerate(wb.worksheets):

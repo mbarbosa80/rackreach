@@ -148,6 +148,8 @@ def state(ner_session: Optional[str] = Cookie(default=None),
         # to say "reload" instead of quietly running last week's interface.
         "app": settings.app_name,
         "version": settings.version,
+        # 5.3.0: "5.3.0-rc2" on a release candidate, the version otherwise.
+        "build": _build(),
         "copyright": COPYRIGHT,
     }
 
@@ -378,3 +380,8 @@ def delete_user(user_id: int, body: DeleteUserIn, admin: User = Depends(require_
         return A.delete_user(db, u, reason=body.reason, actor=admin.username)
     except A.AuthError as exc:
         raise _err(exc) from exc
+
+
+def _build() -> str:
+    from app.version import __build__
+    return __build__

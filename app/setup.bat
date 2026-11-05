@@ -471,7 +471,7 @@ set "CLEAN=%TEMP%\ner-setup-cleanup-%RANDOM%%RANDOM%.cmd"
   echo cd /d "%%TEMP%%"
   echo for /f "usebackq tokens=1,* delims= " %%%%A in ("%SRC%\MANIFEST.txt"^) do call :kill "%%%%B"
   echo if exist "%SRC%\vendor" rmdir /s /q "%SRC%\vendor" ^>nul 2^>nul
-  echo for %%%%F in ^(PACKAGE.txt MANIFEST.txt setup.bat data\.keep^) do if exist "%SRC%\%%%%F" del /f /q "%SRC%\%%%%F" ^>nul 2^>nul
+  echo for %%%%F in ^(PACKAGE.txt MANIFEST.txt BUILD setup.bat data\.keep^) do if exist "%SRC%\%%%%F" del /f /q "%SRC%\%%%%F" ^>nul 2^>nul
   echo set N=0
   echo :retry
   echo for /f "delims=" %%%%D in ^('dir /ad /b /s "%SRC%" 2^^^>nul ^^^| sort /r'^) do rd "%%%%D" ^>nul 2^>nul

@@ -9,7 +9,9 @@ from __future__ import annotations
 from typing import Any, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+import math
+
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -252,9 +254,17 @@ def patch_ner(project_id: int, ner_id: int, body: FieldsIn,
 
 
 class MoveIn(BaseModel):
-    page: int
+    page: int = Field(..., ge=1)
     x: float
     y: float
+
+    @model_validator(mode="after")
+    def _on_sheet(self) -> "MoveIn":
+        # rc6: x 1e200 was accepted. Same limit as a route corner.
+        for c in (self.x, self.y):
+            if not math.isfinite(c) or abs(c) > 1_000_000:
+                raise ValueError("the position must be a point on the sheet")
+        return self
     propose: bool = True
     reason: str = ""
     actor: str = "user"

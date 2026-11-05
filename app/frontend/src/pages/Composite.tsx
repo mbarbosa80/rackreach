@@ -26,6 +26,8 @@ const STATE_COLOUR: Record<string, string> = {
   unconfirmed: "#f28c1a",
   contradicted: "#d81b1b",
   not_aligned: "#777777",
+  rough: "#8e44ad",
+  manual: "#2e8b57",
 };
 
 export const STATE_LABEL: Record<string, string> = {
@@ -33,6 +35,8 @@ export const STATE_LABEL: Record<string, string> = {
   unconfirmed: "not confirmed",
   contradicted: "contradicted",
   not_aligned: "not placed",
+  rough: "placed roughly - move it",
+  manual: "placed by you",
 };
 
 /** Where the main window is told to open a sheet (5.0.0): the map window
@@ -185,6 +189,20 @@ export function CompositeWindow({ projectId, mapId }: { projectId: number; mapId
     } catch (e: any) { setMsg({ text: e.message, kind: "err" }); }
   };
 
+  /** The sheet whose nudge buttons are open, and the step in metres (5.3.0). */
+  const [nudging, setNudging] = useState<number | null>(null);
+  const [step, setStep] = useState<number>(5);
+  const [moving, setMoving] = useState(false);
+  const nudge = async (page: number, dx: number, dy: number) => {
+    if (moving) return;
+    setMoving(true);
+    try {
+      await api.moveCompositeSheet(projectId, current, page, dx, dy);
+      await load();
+    } catch (e: any) { setMsg({ text: e.message, kind: "err" }); }
+    finally { setMoving(false); }
+  };
+
   const exclude = async (page: number, excluded: boolean) => {
     try {
       await api.excludeCompositeSheet(projectId, current, page, excluded);
@@ -262,6 +280,8 @@ export function CompositeWindow({ projectId, mapId }: { projectId: number; mapId
               {m.unconfirmed ? ` · ${m.unconfirmed} ${t("not confirmed")}` : ""}
               {m.contradicted ? ` · ${m.contradicted} ${t("contradicted")}` : ""}
               {m.not_aligned ? ` · ${m.not_aligned} ${t("not placed")}` : ""}
+              {m.rough ? ` · ${m.rough} ${t("placed roughly - move it")}` : ""}
+              {m.manual ? ` · ${m.manual} ${t("placed by you")}` : ""}
               {m.excluded ? ` · ${m.excluded} ${t("left off")}` : ""}
             </div>
             <div className="small muted">
@@ -368,17 +388,36 @@ export function CompositeWindow({ projectId, mapId }: { projectId: number; mapId
                     <button className="small" onClick={() => openInMainWindow(projectId, s.key)}>
                       {t("Open")}
                     </button>{" "}
+                    {s.state !== "not_aligned" && !s.excluded && (
+                      <button className="small" onClick={() => setNudging(nudging === s.page ? null : s.page)}
+                              title={t("Move this sheet on the map, a few metres at a time")}>
+                        {t("Move")}
+                      </button>
+                    )}{" "}
                     {s.state !== "not_aligned" && (
                       <button className="small" onClick={() => void exclude(s.page, !s.excluded)}>
                         {s.excluded ? t("Put back") : t("Leave off")}
                       </button>
                     )}
                   </span>
+                  {nudging === s.page && (
+                    <div className="small" style={{ marginTop: 4 }}>
+                      <select value={step} onChange={(e) => setStep(Number(e.target.value))}>
+                        {[1, 5, 20, 100].map((v) => <option key={v} value={v}>{v} m</option>)}
+                      </select>{" "}
+                      <button className="small" disabled={moving} title={t("Left")} onClick={() => void nudge(s.page, -step, 0)}>←</button>
+                      <button className="small" disabled={moving} title={t("Up")} onClick={() => void nudge(s.page, 0, -step)}>↑</button>
+                      <button className="small" disabled={moving} title={t("Down")} onClick={() => void nudge(s.page, 0, step)}>↓</button>
+                      <button className="small" disabled={moving} title={t("Right")} onClick={() => void nudge(s.page, step, 0)}>→</button>
+                      <span className="muted"> {t("Moves the picture only: NERs and spaces stay where they are on their sheets.")}</span>
+                    </div>
+                  )}
                 </li>
               ))}
             </ul>
             <p className="small muted">
-              {t("Blue: confirmed by two measurements or by a neighbouring sheet. Orange: placed, not confirmed — check it against its neighbours. Red: the spaces it shares with a neighbour do not line up. A sheet left off is not drawn and its NERs are not shown.")}
+              {t("Blue: confirmed by two measurements or by a neighbouring sheet. Orange: placed, not confirmed — check it against its neighbours. Red: the spaces it shares with a neighbour do not line up. A sheet left off is not drawn and its NERs are not shown.")}{" "}
+              {t("Purple: the app could not place it and set it beside the map - use Move to put it in place. Green: placed by you; it keeps that place when the map is built again.")}
             </p>
           </section>
         </aside>

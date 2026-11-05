@@ -6,7 +6,6 @@
 # setup.command installs precisely these (pip --no-index --no-deps).
 #
 # Keep the two lock files equal: tests/test_mac_package_300.py refuses a drift.
-absl-py==2.5.0
 annotated-doc==0.0.5
 annotated-types==0.8.0
 anyio==4.14.2
@@ -21,16 +20,13 @@ httpcore==1.0.9
 httptools==0.8.0
 httpx==0.28.1
 idna==3.19
-immutabledict==4.3.1
 iniconfig==2.3.0
 networkx==3.6.1
 numpy==2.5.2
 openpyxl==3.1.5
-ortools==9.15.6755
 packaging==26.3
 pandas==3.0.5
 pluggy==1.6.0
-protobuf==6.33.6
 pydantic==2.13.4
 pydantic-settings==2.15.0
 pydantic_core==2.46.4

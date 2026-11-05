@@ -67,7 +67,7 @@ REM ===========================================================================
 echo   [1/6] Bundled Python runtime: %EMBED%
 
 REM --- The C++ runtime. numpy, pandas and shapely carry their own copy of
-REM     msvcp140.dll; PyMuPDF, OR-Tools and RapidFuzz expect the system one,
+REM     msvcp140.dll; PyMuPDF and RapidFuzz expect the system one,
 REM     which nearly every Windows already has (any Microsoft Visual C++
 REM     Redistributable 2015-2022 puts it there). When it is missing, the
 REM     installer places the copy numpy ships next to python.exe: an
@@ -262,7 +262,7 @@ REM ===========================================================================
 REM  Prove it actually works: load every component once.
 REM ===========================================================================
 if "%PY%"==".python\python.exe" (echo   [6/6] Checking the installation...) else (echo   [5/5] Checking the installation...)
-%PY% -c "import fastapi,uvicorn,sqlalchemy,pymupdf,openpyxl,pandas,shapely,networkx,rapidfuzz,ortools;print('         all components load')"
+%PY% -c "import fastapi,uvicorn,sqlalchemy,pymupdf,openpyxl,pandas,shapely,networkx,rapidfuzz;print('         all components load')"
 if errorlevel 1 (
   echo.
   echo   [X] A component failed to load. Do not use this installation.

@@ -7,6 +7,8 @@ was produced by ``app.domain``.
 from __future__ import annotations
 
 import datetime as _dt
+import logging
+import pickle
 import re
 import threading
 from pathlib import Path
@@ -14,12 +16,13 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import delete, func, select
 from starlette.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session, selectinload
 
 from .. import auth as A
+from .. import isolate
 from .. import services as S
 from .. import sheets as SH
 from .auth_routes import current_user
@@ -737,6 +740,34 @@ def place_access_points_from_teap(project_id: int, user: User = Depends(current_
         return S.place_access_points_from_teap(db, p, actor=user.username)
     except S.BusyError as exc:
         raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/projects/{project_id}/wireless/decisions")
+def wifi_decisions(project_id: int, db: Session = Depends(get_session)) -> dict:
+    """The Wi-Fi decisions a person made that can be undone (5.3.0)."""
+    return S.wifi_decisions(db, _project(db, project_id))
+
+
+class WifiUndoIn(BaseModel):
+    space_key: Optional[str] = None
+    element_id: Optional[int] = None
+
+
+@router.post("/projects/{project_id}/wireless/undo")
+def wifi_undo(project_id: int, body: WifiUndoIn, user: User = Depends(current_user),
+              db: Session = Depends(get_session)) -> dict:
+    """Undo one Wi-Fi decision: bring back a deleted space's point, or put a
+    dragged point back beside its room (5.3.0)."""
+    p = _project(db, project_id)
+    if not body.space_key and not body.element_id:
+        raise HTTPException(422, "say which space or which point")
+    try:
+        return S.undo_wifi_decision(db, p, space_key=body.space_key,
+                                    element_id=body.element_id, actor=user.username)
+    except S.BusyError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except S.ValidationError as exc:
+        raise _err(exc)
 
 
 @router.get("/projects/{project_id}/wireless/stacked")
@@ -1895,14 +1926,33 @@ def delete_zone(project_id: int, zone_id: int, db: Session = Depends(get_session
     return Response(status_code=204)
 
 
+#: The largest coordinate a route corner may have (5.3.0 rc4). PDF pages are
+#: at most 14,400 points a side; a corner at 1e200 was accepted and made
+#: every analysis of the project fail with OverflowError until it was deleted.
+ROUTE_COORD_LIMIT = 1_000_000.0
+
+
+def _sane_corner(*values: float) -> None:
+    for c in values:
+        if c != c or abs(c) > ROUTE_COORD_LIMIT:
+            raise ValueError("a route corner must be a point on the sheet")
+
+
 class RouteIn(BaseModel):
-    page: int
+    page: int = Field(..., ge=1)
     x0: float
     y0: float
     x1: float
     y1: float
     kind: str = "tray"
     label: str = ""
+
+    @model_validator(mode="after")
+    def _segment(self) -> "RouteIn":
+        _sane_corner(self.x0, self.y0, self.x1, self.y1)
+        if abs(self.x0 - self.x1) < 1e-6 and abs(self.y0 - self.y1) < 1e-6:
+            raise ValueError("a route segment needs two different corners")
+        return self
 
 
 @router.get("/projects/{project_id}/routes")
@@ -1936,7 +1986,7 @@ _ROUTE_NAME_RX = re.compile(r"^R(\d+)$")
 
 class RoutePathIn(BaseModel):
     """A route drawn in one go: corner after corner, double-click to end."""
-    page: int
+    page: int = Field(..., ge=1)
     points: list[list[float]] = Field(..., min_length=2, max_length=500)
     kind: str = "tray"
 
@@ -1947,6 +1997,7 @@ class RoutePathIn(BaseModel):
         for q in v:
             if len(q) != 2 or any(c != c or c in (float("inf"), float("-inf")) for c in q):
                 raise ValueError("each corner is [x, y]")
+            _sane_corner(*q)
             if out and abs(out[-1][0] - q[0]) < 1e-6 and abs(out[-1][1] - q[1]) < 1e-6:
                 continue      # the second click of a double-click
             out.append([float(q[0]), float(q[1])])
@@ -2038,15 +2089,25 @@ def delete_route(project_id: int, route_id: int, whole: bool = False,
 
 class VerticalIn(BaseModel):
     key: str
-    lower_page: int
+    lower_page: int = Field(..., ge=1)
     lower_x: float
     lower_y: float
-    upper_page: int
+    upper_page: int = Field(..., ge=1)
     upper_x: float
     upper_y: float
-    length_m: float = Field(..., gt=0)
+    #: A shaft or riser is metres long, not kilometres (rc6: Infinity and
+    #: 1e-300 were accepted, and a foot at 1e200 broke every analysis).
+    length_m: float = Field(..., gt=0.01, le=500)
     kind: str = "shaft"
     label: str = ""
+
+    @model_validator(mode="after")
+    def _feet(self) -> "VerticalIn":
+        _sane_corner(self.lower_x, self.lower_y, self.upper_x, self.upper_y)
+        if (self.lower_page == self.upper_page and abs(self.lower_x - self.upper_x) < 1e-6
+                and abs(self.lower_y - self.upper_y) < 1e-6):
+            raise ValueError("a vertical link needs two different feet")
+        return self
 
 
 @router.post("/projects/{project_id}/verticals", status_code=201)
@@ -2520,6 +2581,9 @@ def list_assignments(project_id: int, include_zero: bool = False,
         row = {
             "space_key": r.space_key, "space_name": r.space_name,
             "space_code": r.space_code, "ports": r.total_ports,
+            # 5.3.0 rc5: what the TEAP itself got wrong on this space.
+            "teap_errors": [w for w in (r.warnings or [])
+                            if str(w).startswith("TEAP data error")],
             "assigned_ner_asset_id": r.assigned_ner_asset_id,
             "assigned_ner": a.display_name if a else None,
             "assigned_ner_code": a.code if a else None,
@@ -2697,6 +2761,10 @@ def _wireless_rows(db: Session, p: Project, sc: Optional[Scenario],
             "assigned_ner_asset_id": e.assigned_ner_asset_id,
             "assigned_ner": asset_names.get(e.assigned_ner_asset_id) if e.assigned_ner_asset_id else None,
             "space_ner": inherited,
+            # rc6 (Marcelo, WIFI-55 on VBB): the run gave the point its
+            # space's NER, not the nearest one - the select must say so.
+            "follows_space": bool(e.space_key and a.get("pinned")
+                                  and not e.assigned_ner_asset_id),
             "space_ner_source": sources.get(e.space_key) if space_pin else None,
         })
     return out
@@ -2907,6 +2975,21 @@ def build_report(project_id: int, fmt: str, scenario: str = "As-Is",
                              draw_links=lines)
 
 
+def _marked_pdf(src: str, out: str, *, progress=None, **kw) -> list:
+    """Mark up one book in a child interpreter (5.3.0) and return the
+    positions found off their sheet. Falls back to this process when the
+    arguments cannot be sent across - slower is better than no PDF."""
+    try:
+        res = isolate.run("app.domain.reports.export_marked_pdf_job", src, out,
+                          progress=progress, **kw)
+    except (pickle.PicklingError, TypeError, AttributeError) as exc:
+        logging.getLogger("ner.reports").warning(
+            "marked PDF in-process (%s: %s)", type(exc).__name__, exc)
+        from ..domain.reports import export_marked_pdf_job
+        res = export_marked_pdf_job(src, out, progress=progress, **kw)
+    return list(res.get("off_page") or [])
+
+
 def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                       progress=None, draw_legend: bool = True,
                       draw_links: bool = True) -> dict:
@@ -2978,18 +3061,21 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
         sh = SH.for_project(db, p.id)
         common = dict(coverage=result, ners=drawn, scale_for_page=scales,
                       rules=S.distance_rules(p), scenario=scenario,
-                      off_page=off_page, coverage_available=not nothing_matched,
+                      coverage_available=not nothing_matched,
                       draw_legend=draw_legend, draw_links=draw_links,
                       areas=S.areas_to_draw(db, p))
         if not sh.multi:
-            export_marked_pdf(p.drawings[0].stored_path, str(out), progress=progress,
-                              **common)
+            off_page.extend(_marked_pdf(p.drawings[0].stored_path, str(out),
+                                        progress=progress, **common))
         else:
             # Several books (4.1.0): each is marked with its own sheets — its
             # page n is sheet ``sh.key(book, n)`` — and the marked books are
             # put one after the other in one file, in book order.
             import pymupdf
             books = sorted(p.drawings, key=lambda d: d.id)
+            # Every sheet's name, for the cross-sheet notes on any book.
+            labels = {sh.key(b.id, n): sh.label(sh.key(b.id, n))
+                      for b in books for n in range(1, (b.page_count or 0) + 1)}
             parts = []
             try:
                 for i, d in enumerate(books):
@@ -3000,10 +3086,12 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                             progress((_i + frac) / len(books), f"{_name}: {msg}")
                     # The legend box goes on the first page of the file only
                     # (4.3.0): the first book's first page.
-                    export_marked_pdf(d.stored_path, str(part), progress=_prog,
-                                      legend_page=1 if i == 0 else None,
-                                      page_key=(lambda n, _d=d.id: sh.key(_d, n)),
-                                      sheet_text=sh.label, **common)
+                    off_page.extend(_marked_pdf(
+                        d.stored_path, str(part), progress=_prog,
+                        legend_page=1 if i == 0 else None,
+                        page_keys={n: sh.key(d.id, n)
+                                   for n in range(1, (d.page_count or 0) + 1)},
+                        sheet_labels=labels, **common))
                     parts.append(part)
                 merged = pymupdf.open()
                 for part in parts:
@@ -3370,10 +3458,15 @@ def ner_asset_positions(project_id: int, page: Optional[int] = None,
 
 
 class NerPositionIn(BaseModel):
-    page: int
+    page: int = Field(..., ge=1)
     x: float
     y: float
     reason: str = ""
+
+    @model_validator(mode="after")
+    def _on_sheet(self) -> "NerPositionIn":
+        _sane_corner(self.x, self.y)          # rc6: 1e200 accepted, NaN gave 500
+        return self
 
 
 @router.patch("/projects/{project_id}/ners/{ner_id}/position")

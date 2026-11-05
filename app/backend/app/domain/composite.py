@@ -45,8 +45,9 @@ What a sheet is told
 ``state``: ``confirmed`` when A and B agree within 1 m or an overlapping
 neighbour confirms it; ``unconfirmed`` otherwise (the services add
 ``contradicted`` from the spaces two neighbouring sheets share);
-``not_aligned`` when neither method could place it — it is listed, never
-drawn. The map is a picture to decide on, not a measurement: it changes no
+``rough`` (5.3.0) when neither method could place it — it is set in a row
+beside the map for a person to move into place (``not_aligned`` only when it
+has no scale); ``manual`` once a person has moved a sheet. The map is a picture to decide on, not a measurement: it changes no
 distance the analysis computes.
 """
 
@@ -600,6 +601,28 @@ def align_book(pdf_path: str, pages: list[dict], only: Optional[list[str]] = Non
             c = rec["clip"]
             xs += [rec["s"] * (c[0] + t["tx"]), rec["s"] * (c[2] + t["tx"])]
             ys += [rec["s"] * (c[1] + t["ty"]), rec["s"] * (c[3] + t["ty"])]
+        # The sheets neither method could place (5.3.0). Marcelo, 4 Nov 2026:
+        # keep them, put them in at least a rough place, and let me move them.
+        # They go in a row under the placed ones, in sheet order, marked
+        # ``rough``: on the picture, never mistaken for a placement.
+        rough = [rec for rec in report if rec["state"] == "not_aligned" and rec.get("mpu")]
+        if rough:
+            base_mpu = M0 or float(rough[0]["mpu"])
+            M0 = M0 or base_mpu
+            gap = 20.0 / base_mpu                   # 20 m between sheets
+            cx = min(xs) if xs else 0.0
+            cy = (max(ys) + gap) if ys else 0.0
+            for rec in rough:
+                view = viewport(book.page(rec["page"]).rect)
+                s_ = rec["mpu"] / M0
+                rec.update(method="rough (beside the map)", clip=list(view), view=list(view),
+                           s=s_, tx=cx / s_ - view[0], ty=cy / s_ - view[1],
+                           neighbours_ok=0, moved_by_neighbours_m=0.0, state="rough",
+                           why=(rec.get("why") or "could not be placed")
+                           + " - set beside the map; move it into place")
+                xs += [cx, cx + s_ * (view[2] - view[0])]
+                ys += [cy, cy + s_ * (view[3] - view[1])]
+                cx += s_ * (view[2] - view[0]) + gap
         margin = 40.0
         frame = ({"x0": min(xs) - margin, "y0": min(ys) - margin,
                   "width": max(xs) - min(xs) + 2 * margin,
@@ -627,6 +650,22 @@ def from_map(sheet: dict, frame: dict, X: float, Y: float) -> tuple[float, float
     return (X + frame["x0"]) / s - sheet["tx"], (Y + frame["y0"]) / s - sheet["ty"]
 
 
+def frame_of(sheets: list[dict], margin: float = 40.0) -> Optional[dict]:
+    """The frame around every sheet on the picture (5.3.0: again after a
+    person moves one)."""
+    xs, ys = [], []
+    for sh in sheets:
+        if not drawn(sh) or "tx" not in sh:
+            continue
+        c, s_ = sh["clip"], sh.get("s", 1.0)
+        xs += [s_ * (c[0] + sh["tx"]), s_ * (c[2] + sh["tx"])]
+        ys += [s_ * (c[1] + sh["ty"]), s_ * (c[3] + sh["ty"])]
+    if not xs:
+        return None
+    return {"x0": min(xs) - margin, "y0": min(ys) - margin,
+            "width": max(xs) - min(xs) + 2 * margin, "height": max(ys) - min(ys) + 2 * margin}
+
+
 def inside(rect, x: float, y: float) -> bool:
     return rect[0] <= x <= rect[2] and rect[1] <= y <= rect[3]
 
@@ -651,7 +690,7 @@ def compose(pdf_path: str, group: dict, out_path: str) -> dict:
     page = out.new_page(width=frame["width"], height=frame["height"])
     # The surest sheets last, so they sit on top where sheets overlap: a sheet
     # in the wrong place never hides one in the right place.
-    order = {"contradicted": 0, "unconfirmed": 1, "confirmed": 2}
+    order = {"rough": -1, "manual": 1, "contradicted": 0, "unconfirmed": 1, "confirmed": 2}
     for sh in sorted(group["sheets"], key=lambda s: order.get(s.get("state"), 1)):
         if not drawn(sh):
             continue

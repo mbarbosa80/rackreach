@@ -97,6 +97,8 @@ def test_every_translated_server_message_still_exists_on_the_server():
 # Interface copy that happens to start lower case. Listed explicitly so the
 # test above stays strict about everything else.
 _INTERFACE_LOWER_CASE = {
+    # 5.3.0 — the composite map's sheet states
+    "placed roughly - move it", "placed by you",
     # 5.2.2 — Separate asks for a name
     "a NER of its own; check its criticality on its row.",
     # 5.2.0 — the worklist's warning on a decision an exact code contradicts

@@ -10,7 +10,11 @@ import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import math
+
 from fastapi import FastAPI
+from fastapi.encoders import jsonable_encoder
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -71,6 +75,23 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title=settings.app_name, version=settings.version,
               description=settings.disclaimer, lifespan=lifespan)
 
+
+def _finite(v):
+    """NaN and Infinity are not JSON: echoed back in a 422 they made it a 500."""
+    if isinstance(v, float) and not math.isfinite(v):
+        return str(v)
+    if isinstance(v, dict):
+        return {k: _finite(x) for k, x in v.items()}
+    if isinstance(v, (list, tuple)):
+        return [_finite(x) for x in v]
+    return v
+
+
+@app.exception_handler(RequestValidationError)
+async def _validation_error(request, exc: RequestValidationError):  # noqa: ARG001
+    return JSONResponse(status_code=422,
+                        content={"detail": jsonable_encoder(_finite(list(exc.errors())))})
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -117,7 +138,8 @@ app.include_router(composite_router, prefix="/api", dependencies=_guarded)
 
 @app.get("/healthz")
 def healthz() -> dict:
-    return {"status": "ok", "version": settings.version}
+    from app.version import __build__
+    return {"status": "ok", "version": settings.version, "build": __build__}
 
 
 if STATIC_DIR.exists():

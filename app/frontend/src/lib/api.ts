@@ -294,6 +294,11 @@ export const api = {
     req<any>(`/projects/${id}/composite/${mapId}/sheets/${page}/exclude`, {
       method: "POST", body: JSON.stringify({ excluded }),
     }),
+  /** Nudge one sheet of the composite map by metres (5.3.0). */
+  moveCompositeSheet: (id: number, mapId: number, page: number, dx_m: number, dy_m: number) =>
+    req<any>(`/projects/${id}/composite/${mapId}/sheets/${page}/move`, {
+      method: "POST", body: JSON.stringify({ dx_m, dy_m }),
+    }),
   moveNerOnMap: (id: number, mapId: number, body: { asset_id: number; x: number; y: number;
                                                     justification?: string; preview?: boolean }) =>
     req<any>(`/projects/${id}/composite/${mapId}/move-ner`, {
@@ -357,6 +362,12 @@ export const api = {
   /** Wi-Fi points on top of each other (4.8.0). */
   stackedWifi: (id: number) =>
     req<{ stacks: number; points: number; to_move: number }>(`/projects/${id}/wireless/stacked`),
+  /** The Wi-Fi decisions a person made that can be undone (5.3.0). */
+  wifiDecisions: (id: number) =>
+    req<{ deleted: any[]; moved: any[] }>(`/projects/${id}/wireless/decisions`),
+  /** Undo one: bring back a deleted space's point, or put a dragged one back (5.3.0). */
+  wifiUndo: (id: number, body: { space_key?: string; element_id?: number }) =>
+    req<any>(`/projects/${id}/wireless/undo`, { method: "POST", body: JSON.stringify(body) }),
   /** Spread them into a grid beside the oldest of each stack (4.8.0). */
   spreadWifi: (id: number) =>
     req<any>(`/projects/${id}/wireless/spread`, { method: "POST" }),

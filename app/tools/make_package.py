@@ -5,6 +5,16 @@
     python tools/make_package.py --label test         # ...-<version>-test-windows.zip
     python tools/make_package.py --platform mac       # dist/ner-analyzer-<version>-macos-arm64.zip
     python tools/make_package.py --public             # ...-<version>-public-windows.zip (4.3.0)
+    python tools/make_package.py --label rc2          # release candidate 5.3.0-rc2 (5.3.0)
+
+Release gate (5.3.0). A label with an ``rcN`` or ``dev`` token builds a
+release CANDIDATE: allowed at any time, stamped ``BUILD = <version>-rcN``,
+for Marcelo's machine and the gate only. Every other build is FINAL (what the
+team and the public release receive) and is refused unless a GO report of
+``qa/gate.py`` exists for this version with the same source fingerprint (the
+sha256 of MANIFEST.txt). Change one shipped byte after the gate and the final
+build is refused until the gate runs again. ``--skip-gate "<reason>"`` exists
+for Marcelo's explicit order only, and the reason is printed into PACKAGE.txt.
 
 ``--public`` (4.3.0) builds the edition that may be published: the same
 application without ``backend/app/reference_private`` (a client's own
@@ -76,6 +86,7 @@ from __future__ import annotations
 import argparse
 import datetime as _dt
 import hashlib
+import json
 import pathlib
 import re
 import sys
@@ -112,7 +123,7 @@ EXCLUDE_DIRS = {
 }
 # Top-level names excluded by path, not by name, so a source file that happens
 # to live in a folder called "data" is not silently dropped.
-EXCLUDE_TOP = {"data"}
+EXCLUDE_TOP = {"data", "qa"}
 # Anything starting with these prefixes at any level: working folders that
 # accumulate on the development machine and never belong in a package.
 EXCLUDE_PREFIXES = ("_backup", "_removed", "_ship", "_sync", "_deploy",
@@ -408,6 +419,7 @@ def build_mac(args) -> int:
     if PUBLIC:
         assert_public(files)
     assert_versions_agree()
+    build, gate_note, fp = gate_and_build(files, args)
     if _lock_pins("requirements-lock-mac.txt") != _lock_pins("requirements-lock-win.txt"):
         raise SystemExit("refusing to build: requirements-lock-mac.txt and "
                          "requirements-lock-win.txt pin different versions")
@@ -443,14 +455,18 @@ def build_mac(args) -> int:
         _zip_add(z, runtime, f"ner-analyzer/vendor/python/{runtime.name}", False)
         z.writestr("ner-analyzer/data/.keep",
                    "The database and uploads live here. Created on first run.\n")
+        z.writestr("ner-analyzer/BUILD", build + "\n")
         z.writestr("ner-analyzer/PACKAGE.txt",
-                   f"NER Spatial Coverage Analyzer {VERSION} for macOS (Apple Silicon)\n"
+                   f"NER Spatial Coverage Analyzer {build} for macOS (Apple Silicon)\n"
+                   f"{gate_note}\nsource fingerprint {fp}\n"
                    f"built {stamp}\n"
                    f"{len(files)} files, {len(wheels)} bundled Python packages (offline install)\n"
                    f"Python runtime bundled ({MAC_RUNTIME_NAME}, sha256 {MAC_RUNTIME_SHA256})\n"
                    f"no database, no uploads, no accounts\n"
                    f"(c) 2026 Marcelo Barbosa. Created by Marcelo Barbosa. Free software under the GNU AGPL-3.0 - see LICENSE.txt and NOTICE.txt.\n"
                    f"{'public edition: no private reference material' if PUBLIC else 'team edition: carries the private reference material it was built with'}\n")
+        if fingerprint_of(manifest) != fp:
+            raise SystemExit("internal error: MANIFEST differs from the fingerprinted source")
         z.writestr("ner-analyzer/MANIFEST.txt",
                    "\n".join(manifest) + f"\n\n{len(files)} files, "
                    f"{len(wheels)} bundled packages\n")
@@ -479,6 +495,73 @@ def assert_versions_agree() -> None:
             raise SystemExit(f"docs/{name} does not mention {VERSION}")
 
 
+# ---------------------------------------------------------------------------
+# Release gate (5.3.0)
+# ---------------------------------------------------------------------------
+GATE_DIR = ROOT / "qa" / "reports"
+_CANDIDATE_TOKEN = re.compile(r"rc\d+|dev")
+
+
+def manifest_lines(files: list[pathlib.Path]) -> list[str]:
+    """The MANIFEST.txt lines, in package order: what the fingerprint covers."""
+    return [f"{hashlib.sha256(f.read_bytes()).hexdigest()[:16]}  {f.relative_to(ROOT).as_posix()}"
+            for f in files]
+
+
+def fingerprint_of(lines: list[str]) -> str:
+    """Same function as qa/fingerprint.py (a test keeps them identical)."""
+    return hashlib.sha256("\n".join(lines).encode("utf-8")).hexdigest()
+
+
+def build_label(label: str) -> tuple[str, bool]:
+    """``(BUILD, is_candidate)``: ``rc2`` -> ``("5.3.0-rc2", True)``."""
+    token = next((t for t in label.split("-") if _CANDIDATE_TOKEN.fullmatch(t)), None)
+    return (f"{VERSION}-{token}", True) if token else (VERSION, False)
+
+
+def require_gate(fingerprint: str, gate_report: str = "", skip_gate: str = "",
+                 gate_dir: pathlib.Path | None = None) -> str:
+    """The line PACKAGE.txt carries about the gate, or SystemExit."""
+    if skip_gate:
+        print("!" * 72)
+        print(f"!! FINAL package built WITHOUT the release gate: {skip_gate}")
+        print("!" * 72)
+        return f"built WITHOUT the release gate: {skip_gate}"
+    folder = gate_dir if gate_dir is not None else GATE_DIR
+    reports = sorted(folder.glob("gate-*.json")) if folder.is_dir() else []
+    if gate_report:
+        reports.insert(0, pathlib.Path(gate_report))
+    seen = []
+    for r in reports:
+        try:
+            g = json.loads(r.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        seen.append(f"{r.name}: {g.get('verdict')} {g.get('version')} "
+                    f"{str(g.get('fingerprint'))[:12]}")
+        if (g.get("verdict") == "GO" and g.get("version") == VERSION
+                and g.get("fingerprint") == fingerprint):
+            return f"release gate GO: {r.name} ({g.get('when')}, build {g.get('build')})"
+    raise SystemExit(
+        f"refusing to build a FINAL package of {VERSION}: no release-gate report says GO "
+        f"for this exact source (fingerprint {fingerprint[:12]}).\n"
+        f"  Build a candidate (--label rcN), run qa\\gate.py on it, then build again.\n"
+        + ("  Reports found:\n    " + "\n    ".join(seen) if seen else "  No report found.")
+    )
+
+
+def gate_and_build(files: list[pathlib.Path], args) -> tuple[str, str, str]:
+    """(BUILD, the PACKAGE.txt gate line, fingerprint) — or SystemExit."""
+    fp = fingerprint_of(manifest_lines(files))
+    build, candidate = build_label(args.label or "")
+    if candidate:
+        note = f"release CANDIDATE {build}: for testing only, not for the team"
+    else:
+        note = require_gate(fp, args.gate_report, args.skip_gate)
+    print(f"  build {build} · source fingerprint {fp[:16]} · {note}")
+    return build, note, fp
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -499,6 +582,11 @@ def main() -> int:
     ap.add_argument("--public", action="store_true",
                     help="the edition that may be published (4.3.0): no private "
                          "reference material, no event or venue names")
+    ap.add_argument("--gate-report", default="",
+                    help="a gate-<build>.json to accept (default: qa/reports/gate-*.json)")
+    ap.add_argument("--skip-gate", default="", metavar="REASON",
+                    help="build a FINAL package without a GO gate report — only on "
+                         "Marcelo's explicit order; the reason goes into PACKAGE.txt")
     args = ap.parse_args()
     if args.public:
         global PUBLIC
@@ -514,6 +602,7 @@ def main() -> int:
     if PUBLIC:
         assert_public(files)
     assert_versions_agree()
+    build, gate_note, fp = gate_and_build(files, args)
 
     wdir = ROOT / args.wheels if not pathlib.Path(args.wheels).is_absolute() \
         else pathlib.Path(args.wheels)
@@ -563,8 +652,10 @@ def main() -> int:
         runtime_line = (f"Python {EMBED_VERSION} runtime bundled ({EMBED_NAME}, "
                         f"sha256 {EMBED_SHA256})" if runtime is not None
                         else "no Python runtime bundled: the target needs Python 3.12")
+        z.writestr("ner-analyzer/BUILD", build + "\n")
         z.writestr("ner-analyzer/PACKAGE.txt",
-                   f"NER Spatial Coverage Analyzer {VERSION}\n"
+                   f"NER Spatial Coverage Analyzer {build}\n"
+                   f"{gate_note}\nsource fingerprint {fp}\n"
                    f"built {stamp}\n"
                    f"{len(files)} files, {len(wheels)} bundled Python packages"
                    f"{' (offline install)' if wheels else ' (online install)'}\n"
@@ -572,6 +663,8 @@ def main() -> int:
                    f"no database, no uploads, no accounts, no virtual environment\n"
                    f"(c) 2026 Marcelo Barbosa. Created by Marcelo Barbosa. Free software under the GNU AGPL-3.0 - see LICENSE.txt and NOTICE.txt.\n"
                    f"{'public edition: no private reference material' if PUBLIC else 'team edition: carries the private reference material it was built with'}\n")
+        if fingerprint_of(manifest) != fp:
+            raise SystemExit("internal error: MANIFEST differs from the fingerprinted source")
         z.writestr("ner-analyzer/MANIFEST.txt",
                    "\n".join(manifest) + f"\n\n{len(files)} files, "
                    f"{len(wheels)} bundled packages\n")

@@ -138,6 +138,24 @@ def composite_exclude(project_id: int, map_id: int, page: int, body: ExcludeIn,
         raise HTTPException(422, str(exc)) from exc
 
 
+class SheetMoveIn(BaseModel):
+    dx_m: float
+    dy_m: float
+
+
+@router.post("/projects/{project_id}/composite/{map_id}/sheets/{page}/move")
+def composite_move_sheet(project_id: int, map_id: int, page: int, body: SheetMoveIn,
+                         user: User = Depends(current_user),
+                         db: Session = Depends(get_session)) -> dict:
+    """Nudge one sheet of the map by a few metres (5.3.0)."""
+    p = _project(db, project_id)
+    try:
+        return CS.move_sheet(db, p, _map(db, project_id, map_id), page, body.dx_m, body.dy_m,
+                             actor=user.username)
+    except CS.CompositeError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 class MoveIn(BaseModel):
     asset_id: int
     x: float

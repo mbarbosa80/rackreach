@@ -148,10 +148,10 @@ Two guards exist because their absence caused real damage:
 
 ## What is deterministic
 
-Every distance, assignment, demand total and optimisation result is computed by
-plain Python and Google OR-Tools. **No language model participates in any
-calculation.** The CP-SAT solve is integer, single-threaded and seeded, so the
-same inputs always produce byte-identical output. There are tests that assert
+Every distance, assignment and demand total is computed by plain Python.
+**No language model participates in any calculation.** The engine sorts every
+candidate by a fixed key, so the same inputs always produce byte-identical
+output. There are tests that assert
 exactly this.
 
 ## Four kinds of data, never mixed
@@ -247,7 +247,6 @@ backend/app/
     matching.py            TEAP × drawing matching cascade
     consolidation.py       is this the same physical room? (V2)
     coverage.py            assignment, capacity, redundancy
-    optimize.py            OR-Tools facility location / set covering
     reports.py             marked-up PDF and audit workbook
   sample_data.py           synthetic document generator
 frontend/                  React + TypeScript + Vite + PDF.js + Konva
@@ -351,7 +350,7 @@ else runs, so a startup failure leaves a trace instead of a process that
 vanishes). It also exits quietly if the port is already serving, so launching it
 twice is harmless.
 
-**Cold start takes 20–40 seconds** — importing PyMuPDF and OR-Tools, then running
+**Cold start takes 20–40 seconds** — importing PyMuPDF, then running
 the migration. The page will not answer before that. `data\server.log` shows
 `Application startup complete` at the moment it is actually ready.
 

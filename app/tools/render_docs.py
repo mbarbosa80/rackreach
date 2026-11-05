@@ -32,7 +32,9 @@ def main() -> int:
 
     names = [args.only] if args.only else [m for m in MANUALS if (DOCS / f"{m}.html").exists()]
     with sync_playwright() as p:
-        browser = p.chromium.launch()
+        import os
+        ch = os.environ.get("NER_PW_CHANNEL")
+        browser = p.chromium.launch(channel=ch) if ch else p.chromium.launch()
         for name in names:
             src = DOCS / f"{name}.html"
             html = src.read_text(encoding="utf-8")

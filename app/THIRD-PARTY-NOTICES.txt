@@ -15,8 +15,6 @@ Python 3.12 (CPython), Python Software Foundation — PSF-2.0
 
 Python packages (bundled as wheels for the offline installation)
 -----------------------------------------------------------------
-absl-py 2.5.0 — Apache-2.0
-  https://github.com/abseil/abseil-py
 annotated-doc 0.0.5 — MIT
   https://github.com/fastapi/annotated-doc
 annotated-types 0.8.0 — MIT
@@ -45,8 +43,6 @@ httpx 0.28.1 — BSD-3-Clause
   https://github.com/encode/httpx
 idna 3.19 — BSD-3-Clause
   https://github.com/kjd/idna
-immutabledict 4.3.1 — MIT
-  https://github.com/corenting/immutabledict
 iniconfig 2.3.0 — MIT
   https://github.com/pytest-dev/iniconfig
 networkx 3.6.1 — BSD-3-Clause
@@ -55,8 +51,6 @@ numpy 2.5.2 — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
   https://numpy.org
 openpyxl 3.1.5 — MIT
   https://openpyxl.readthedocs.io
-ortools 9.15.6755 — Apache 2.0
-  https://developers.google.com/optimization/
 packaging 26.3 — Apache-2.0 OR BSD-2-Clause
   https://github.com/pypa/packaging
 pandas 3.0.5 — BSD License
@@ -64,8 +58,6 @@ pandas 3.0.5 — BSD License
 pip 26.2.1 — MIT
   https://pip.pypa.io/
 pluggy 1.6.0 — MIT
-protobuf 6.33.6 — 3-Clause BSD License
-  https://developers.google.com/protocol-buffers/
 pydantic 2.13.4 — MIT
   https://github.com/pydantic/pydantic
 pydantic-settings 2.15.0 — MIT

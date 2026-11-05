@@ -265,6 +265,8 @@ export default function App() {
         <div className="sub">{t("TER / NER placement and coverage study")}</div>
         <div className="sub version" title={`${t("interface")} ${__APP_VERSION__}`}>
           {t("version")} {serverVersion || __APP_VERSION__}
+          {auth.build && serverVersion && auth.build !== serverVersion &&
+            <span className="build-tag"> {auth.build.slice(serverVersion.length + 1)}</span>}
         </div>
         <nav className="nav">
           {TABS.filter((x) => !x.aside).map((x) => (

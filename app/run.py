@@ -130,7 +130,7 @@ def main() -> int:
     url = f"http://{args.host}:{args.port}/"
     if not args.no_browser:
         # Open the browser when the server answers, not two seconds after it
-        # was asked to start: a cold start is 20-40 s (PyMuPDF, OR-Tools, the
+        # was asked to start: a cold start is 20-40 s (PyMuPDF, the
         # migration), and a tab opened before that shows "cannot be reached".
         def _open_when_up() -> None:
             import socket

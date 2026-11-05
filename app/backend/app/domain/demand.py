@@ -17,6 +17,7 @@ raises a reconciliation warning wherever the two disagree.
 
 from __future__ import annotations
 
+import math
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -185,20 +186,36 @@ class SpaceDemand:
         return out
 
 
+#: The start of every warning about a value the TEAP itself got wrong (5.3.0
+#: rc5). The Exceptions step lists the spaces that carry one.
+TEAP_DATA_ERROR = "TEAP data error"
+
+
 def _as_float(v) -> Optional[float]:
     if v is None:
         return None
     if isinstance(v, bool):
         return None
     if isinstance(v, (int, float)):
-        return float(v)
-    s = str(v).strip().replace(",", "")
+        f = float(v)
+        return f if math.isfinite(f) else None
+    s = str(v).strip()
     if not s:
         return None
+    # A comma is a thousands separator only in that exact shape (1,234 or
+    # 12,345.5). "1,5" is a decimal comma or a typo - it used to be read as
+    # 15 (rc6, independent tester on rc5) - so it is not a number here.
+    if "," in s:
+        if not re.fullmatch(r"[-+]?\d{1,3}(,\d{3})+(\.\d+)?", s):
+            return None
+        s = s.replace(",", "")
     try:
-        return float(s)
+        f = float(s)
     except ValueError:
         return None
+    # "nan", "inf", "1e400": not a count of anything (rc6 - "nan" made the
+    # whole import fail, "inf" made a space's ports null).
+    return f if math.isfinite(f) else None
 
 
 def _space_key(row: TeapRow) -> str:
@@ -212,6 +229,26 @@ def resolve_line(row: TeapRow, rules: DemandRuleSet,
                  product_ports: dict[str, float]) -> LineDemand:
     qty = _as_float(row.get("quantity")) or 0.0
     explicit = _as_float(row.get("network_ports"))
+    data_errors: list[str] = []
+    # A value the TEAP got wrong never moves a port (5.3.0 rc5; independent
+    # tester on rc2: a line of -5 took a space's 4 real ports away and the
+    # Reconciliation sheet still said OK). Counted as 0 and said, so the
+    # Exceptions step lists the space. None of Marcelo's TEAPs (3 versions,
+    # 20,056 lines each) has one; this is a guard, not a rule change.
+    for field, raw, val in (("quantity", row.get("quantity"), qty),
+                            ("network ports", row.get("network_ports"), explicit)):
+        if raw not in (None, "") and not isinstance(raw, bool) and _as_float(raw) is None:
+            data_errors.append(f"{TEAP_DATA_ERROR}: {field} {str(raw)[:30]!r} on row "
+                               f"{row.row_number} is not a number - "
+                               f"{'counted as 0' if field == 'quantity' else 'ignored'}, "
+                               f"check the TEAP")
+        elif val is not None and val < 0:
+            data_errors.append(f"{TEAP_DATA_ERROR}: negative {field} ({val:g}) on row "
+                               f"{row.row_number} - counted as 0, check the TEAP")
+    if qty < 0:
+        qty = 0.0
+    if explicit is not None and explicit < 0:
+        explicit = 0.0
     pcode = row.get("product_code")
     pcode_s = str(pcode).strip() if pcode else None
     pdesc = row.get("product_description")
@@ -250,10 +287,12 @@ def resolve_line(row: TeapRow, rules: DemandRuleSet,
                            f"fallback {rules.fallback_ports_per_unit:g} port(s)/unit applied")
             warnings.append("no reliable port information for this line — review required")
 
+    if ports < 0:
+        ports = 0.0
     return LineDemand(
         row_number=row.row_number, space_key=_space_key(row), product_code=pcode_s,
         product_description=pdesc_s, quantity=qty, ports=float(ports), rule=rule,
-        explanation=explanation, warnings=warnings,
+        explanation=explanation, warnings=data_errors + warnings,
     )
 
 

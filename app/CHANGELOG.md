@@ -28,8 +28,19 @@ name all read it from there.
    places above, and refuses a manual that carries the wrong number or any
    change history; `tests/test_installer.py` holds the scripts and the
    packager to the bundled-runtime layout.
-7. Build the packages: `build_package.bat` → `dist\ner-analyzer-<version>-windows.zip`;
+7. Build a release **candidate**: `python tools/make_package.py --label rc1` →
+   `dist\ner-analyzer-<version>-rc1-windows.zip`. It installs on Marcelo's
+   machine and shows `rc1` beside the version; it never goes to the team.
+8. Run the **release gate** on it (`qa\gate.py`, see `qa/README.md`): fresh
+   install + full suite inside it, a synthetic project from nothing, the
+   previous version upgraded with a copy of the real data and every project
+   measured before and after, every screen of every project in a browser.
+   Every difference must be explained in `qa/expected/<version>.json`.
+   A defect found → fix it, `rc2`, gate again.
+9. Only with a GO report for the same source, build the **final** packages:
+   `build_package.bat` → `dist\ner-analyzer-<version>-windows.zip`;
    `python tools/make_package.py --platform mac` → `dist/ner-analyzer-<version>-macos-arm64.zip`.
+   The packager refuses a final build without that report (5.3.0).
 
 The manual (`docs/MANUAL.html`) describes the application as it is and carries
 no history; this file is where the history lives from 2.0.0 on. Everything
@@ -40,6 +51,136 @@ archived under `docs/history/`, which is private and left out of a public
 package.
 
 ---
+
+## 5.3.0 — 2026-11-04
+
+MINOR: the open list closed - routes measured the way they are drawn, a venue
+guard on the matching, undo for Wi-Fi decisions, sheets placed by hand on the
+composite map, a Reconciliation sheet in the workbook, the marked-up PDF out of
+the server process, and OR-Tools out of the package.
+
+Release process (rc2): a release gate. `qa/gate.py` (development only, not
+shipped) decides GO or NO-GO for a candidate package with evidence: a fresh
+install with the full suite inside it; a synthetic project built from nothing
+through the API (Place NERs and Place APs pressed twice must not duplicate,
+remove/restore, analysis, workbook, marked PDF) and every screen of it in a
+headless Edge; the previous release installed with a snapshot of the real
+data, every project measured, the candidate installed over it the way the
+team updates, every project measured again and every screen opened; every
+difference between the two must be explained in `qa/expected/<version>.json`.
+The packager refuses a final build without a GO report for the same source
+fingerprint; `--label rcN` builds a candidate, stamped in a new `BUILD` file
+and shown in red beside the version in the menu (`/healthz` and
+`/api/auth/state` carry `build`). `setup.bat` removes `BUILD` from the
+unzipped package with the rest. Tests: `tests/test_release_gate_530.py`.
+
+Found by the independent tester on rc2, fixed in rc4 (`tests/test_tester_findings_530.py`,
+both tests failed on rc3's code):
+
+- **Separate with an empty name kept the group's name.** Leaving the name
+  prompt empty is supposed to give the next free name; the new NER kept its
+  marker's label, which is the group's name, so two live NERs shared one name
+  and the workbook listed both (present since 5.2.2). It now gets the next
+  free name of its series.
+- **A route corner far off the sheet broke the project.** A corner at
+  1e200 was saved, and every analysis and workbook of the project then failed
+  until the route was deleted. Route corners must now be finite and within
+  ±1,000,000 points, on page 1 or later, and a segment needs two different
+  corners (only reachable through the API, not by clicking).
+
+rc5:
+
+- **"TEAP by NER" lists every NER.** A NER serving no TEAP space yet was
+  missing from the sheet while "NERs and ports" listed it (75 NERs on 13 of
+  Marcelo's 15 projects). It now has one grey line, "no TEAP space served by
+  this NER yet", and a total of 0; every other total is unchanged.
+- **A value the TEAP got wrong never moves a port.** A negative quantity or
+  port count, or one that is not a number, is counted as 0 and noted on the
+  space as a "TEAP data error"; the Exceptions step has a pile for them,
+  first. Until rc4 a line of -5 took a space's real ports away without a word.
+  None of the real TEAPs checked (three versions of 20,056 lines) has one.
+- **A route counts only when it is mostly traced.** The 15 m join let a tray
+  drawn for one room "catch" neighbouring rooms and set nearer NERs aside,
+  even with 0.0 m traced. A route on the space's sheet now counts from 5 m
+  traced and more traced than the two straight lead-ins together; below that
+  the space is measured in a straight line and the row says why. On
+  Marcelo's 15 projects this releases 3 measurements, all with 0.0 m traced
+  (VGG SPT.012 and WIFI-25, VKK SPP.001).
+
+rc6 - the independent tester's findings on rc5 (`tests/test_tester_findings_rc6_530.py`,
+every test failed on rc5's code):
+
+- **"nan", "inf", "1e400" and "1,5" in the TEAP are data errors.** "nan" made
+  the whole import fail, "inf" made a space's ports empty, and "1,5" was read
+  as 15. They are now noted as a TEAP data error (a quantity counts 0, a port
+  count is ignored); "1,234" is still one thousand two hundred thirty-four.
+- **A space whose every TEAP line is wrong stays on the list.** It used to
+  vanish as "the TEAP requests no network port". It is now in the study at 0
+  ports, in the Exceptions pile "TEAP data error", with a note.
+- **NER names that break the workbook are refused.** A control character (a
+  pasted tab) made the workbook export fail; a name starting with = + - or @
+  was written as an Excel formula (a broken one asks to repair the file, a
+  HYPERLINK one is formula injection). Rename and Separate refuse them, and
+  the workbook writes any such old name as text.
+- **Separate names follow the register.** "NER 061" beside "NER 61" is the
+  same name and is refused; an empty name is always the next free name of the
+  series (it could take a removed NER's name and block its Restore).
+- **Coordinates on every endpoint are checked.** A shaft foot or a NER position
+  off any sheet (1e200, NaN, page 0) was saved and broke the analysis; a NaN
+  in a request now answers 422 with a message instead of 500.
+- **Wi-Fi points that follow their space say so.** The Wi-Fi screen said
+  "nearest: NER_20.1" for a point that only follows the NER of its TEAP space
+  (WIFI-55 on VBB); it now says "as its TEAP space". A point on another level
+  than that NER is listed on the Exceptions step as "served - not measured".
+
+rc7:
+
+- **The route rule holds through a shaft.** A route to a NER on another level
+  counts only with at least 5 m traced (tray and shaft together) and more
+  traced than the straight lead-ins (Marcelo, 4 Nov 2026). A 4 m shaft with
+  24 m of lead-in no longer takes a space from a NER 14.9 m away on its own
+  floor.
+
+- **A drawn route is the measurement.** When a traced route reaches a space,
+  only the NERs it reaches compete; a NER with no route to the space is no
+  longer compared in a straight line (a route is never shorter than a straight
+  line, so the NER somebody traced to used to lose). The row names the NERs set
+  aside and their straight-line distance. A route measured on any sheet the
+  space appears on now beats a straight line measured on another sheet. A NER
+  you chose for the space (Served by) is still honoured. With no route to a
+  space, nothing changes.
+- **Venue guard on the matching.** A TEAP line whose venue code is stated and is
+  not the project's is never matched to a room; its row says which venue it
+  belongs to, and *Run matching* counts them (`other_venue`). A room a person
+  tied to such a line by hand stays.
+- **Wi-Fi: your changes stand, with undo.** A Wi-Fi point you delete stays
+  deleted and one you drag stays where you put it whenever *Place Wi-Fi from
+  the TEAP* runs again (a point you dragged is never the one taken back as an
+  extra). The Wi-Fi screen lists these decisions under *Your Wi-Fi decisions*,
+  each with an undo: bring a deleted space's point back beside its room, or put
+  a dragged point back beside its room.
+- **Composite map: every sheet on the map, and you can move them.** A sheet
+  neither method could place is no longer left off: it is set in a row beside
+  the map, marked *placed roughly - move it* (purple). Any sheet can be moved
+  with *Move* (1, 5, 20 or 100 m a step); it is then *placed by you* (green) and
+  keeps that place when the map is built again. Moving a sheet moves the
+  picture only - NERs and spaces stay where they are on their sheets.
+- **Reconciliation sheet** in the workbook, after *Summary*: the TEAP's spaces
+  and ports against the analysis's, ports on a NER plus ports pending against
+  the TEAP total, ports on a NER against the NERs' load - each *OK* or the
+  difference - then the pending ports by reason and every space behind a
+  difference.
+- **The marked-up PDF is written in a child interpreter**, like reading a book
+  (2.17.0): the server no longer grows by a few hundred megabytes per export.
+- **OR-Tools is no longer shipped** (nothing used it since the optimiser was
+  removed on 2 Sep 2026): OR-Tools, protobuf, absl-py and immutabledict are out
+  of the lock files and the package, about 20 MB less.
+- **Manual:** TEAP × drawing now says every row is investigated - the order by
+  demand only says where to start. Three version references the 5.2.1 and 5.2.2
+  bumps had changed by mistake were put back (*before 5.2.1*, *since 5.2.1*,
+  *before 5.2.0*).
+- New tests: `tests/test_release_530.py`, `tests/test_sort_keys_530.py` (every
+  sortable heading sorts by a field the row has).
 
 ## 5.2.2 — 2026-11-03
 

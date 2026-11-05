@@ -12,7 +12,7 @@ REQUIRED = [
     ("pydantic", "pydantic"), ("pydantic_settings", "pydantic-settings"),
     ("pymupdf", "pymupdf"), ("openpyxl", "openpyxl"), ("xlrd", "xlrd"),
     ("pandas", "pandas"), ("shapely", "shapely"), ("networkx", "networkx"),
-    ("rapidfuzz", "rapidfuzz"), ("ortools", "ortools"),
+    ("rapidfuzz", "rapidfuzz"),
     ("pytest", "pytest"), ("httpx", "httpx"),
 ]
 

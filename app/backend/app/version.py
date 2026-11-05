@@ -49,6 +49,25 @@ def read_version() -> str:
 
 
 __version__ = read_version()
+
+#: The build of this installation (5.3.0): ``5.3.0`` for a final package,
+#: ``5.3.0-rc2`` for a release candidate. Written by the packager into
+#: ``BUILD`` beside ``VERSION``; a development checkout has none and is its
+#: version. Anything that is not this version, optionally followed by
+#: ``-rcN`` or ``-dev``, is ignored rather than shown.
+BUILD_FILE = ROOT / "BUILD"
+
+
+def read_build(version: str | None = None) -> str:
+    version = version or __version__
+    try:
+        text = BUILD_FILE.read_text(encoding="utf-8").strip()
+    except OSError:
+        return version
+    return text if re.fullmatch(re.escape(version) + r"(-(rc\d+|dev))?", text) else version
+
+
+__build__ = read_build()
 APP_NAME = "NER Spatial Coverage Analyzer"
 AUTHOR = "Marcelo Barbosa"
 #: Free software since 4.3.0 (GNU AGPL-3.0). The credit to the author is an

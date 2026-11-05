@@ -168,7 +168,7 @@ def test_tabs_come_in_the_order_of_the_screenshot_with_only_three_coloured(riv):
     assert wb.sheetnames == [n for n in SHEET_ORDER if n in wb.sheetnames]
     assert wb.sheetnames[:4] == ["TEAP by NER", "NERs and ports", "Wireless points", "Summary"]
     assert SHEET_ORDER == ["TEAP by NER", "NERs and ports", "Wireless points", "Summary",
-                           "TEAP and coverage", "Matching", "Match exceptions", "Exceptions",
+                           "Reconciliation", "TEAP and coverage", "Matching", "Match exceptions", "Exceptions",
                            "TEAP spaces with no ports", "Scales", "Coverage figures"]
     colour = {ws.title: (ws.sheet_properties.tabColor.rgb if ws.sheet_properties.tabColor
                          else None) for ws in wb.worksheets}

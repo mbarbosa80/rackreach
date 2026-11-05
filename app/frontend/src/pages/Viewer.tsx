@@ -919,7 +919,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
           + (type === "element" && !DEMAND_KINDS.has(d.kind) ? "" : ` ${t("Re-run the analysis to see the effect.")}`)
           // A deleted Wi-Fi point stays deleted (4.8.0).
           + (type === "element" && DEMAND_KINDS.has(d.kind) && d.space_key
-            ? ` ${t("Place Wi-Fi from the TEAP will not put it back; draw one with +Wi-Fi to bring it back.")}`
+            ? ` ${t("Place Wi-Fi from the TEAP will not put it back; undo it on the Wi-Fi screen to bring it back.")}`
             : ""));
     } catch (err: any) { ctx.notify(err.message, "err"); }
   };

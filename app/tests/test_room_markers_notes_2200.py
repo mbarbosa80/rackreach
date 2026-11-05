@@ -299,8 +299,8 @@ def test_the_sheets_come_in_his_order_with_his_tab_colours(client):
     names = wb.sheetnames
     assert names == [n for n in SHEET_ORDER if n in names], names
     # 4.0.0 (Marcelo, 16 Oct 2026, from a screenshot of the tab bar)
-    assert names[:5] == ["TEAP by NER", "NERs and ports", "Wireless points", "Summary",
-                         "TEAP and coverage"]
+    assert names[:6] == ["TEAP by NER", "NERs and ports", "Wireless points", "Summary",
+                         "Reconciliation", "TEAP and coverage"]
     colour = {ws.title: (ws.sheet_properties.tabColor.rgb if ws.sheet_properties.tabColor
                          else None) for ws in wb.worksheets}
     for yellow in ("NERs and ports", "Wireless points"):

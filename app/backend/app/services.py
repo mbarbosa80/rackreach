@@ -1746,6 +1746,11 @@ ONLY_KEY_PLAN_SPACES = (
     "Key plan for it in the Drawing viewer")
 
 
+def _venue_norm(code: Optional[str]) -> str:
+    """A venue code compared without case or spaces ("" when not stated)."""
+    return "".join(str(code or "").split()).upper()
+
+
 def run_matching(db: Session, project: Project, progress: Progress = None, *,
                  actor: str = "user") -> dict:
     say = _prog(progress)
@@ -1798,13 +1803,26 @@ def run_matching(db: Session, project: Project, progress: Progress = None, *,
     st.page_scale_denominator = {p: sc.denominator
                                  for p, sc in scale_map(db, project.id).items()}
 
-    say(0.4, f"matching {len(teap_rows):,} TEAP spaces against "
+    # The venue guard (5.3.0). The space-code taxonomy is shared across the
+    # Games: SPT.016.01 exists at dozens of venues, so an exact code is no
+    # proof the line belongs to this drawing. A TEAP line whose venue code is
+    # stated and differs from the project's never reaches the matcher; it is
+    # listed as belonging to another venue instead of being matched (on the
+    # VEE test of 27 Aug 2026, 97 % of the "matches" were other venues').
+    proj_venue = _venue_norm(project.venue_code)
+    foreign = [t for t in teap_rows
+               if proj_venue and _venue_norm(t.venue_code)
+               and _venue_norm(t.venue_code) != proj_venue]
+    foreign_ids = {t.id for t in foreign}
+    home_rows = [t for t in teap_rows if t.id not in foreign_ids]
+
+    say(0.4, f"matching {len(home_rows):,} TEAP spaces against "
              f"{len(draw_rows):,} drawing spaces")
     with SH.naming(sh):
         report = M.match_spaces(
-            [(t.space_key, t.space_code, t.space_name, t.building, t.level) for t in teap_rows],
+            [(t.space_key, t.space_code, t.space_name, t.building, t.level) for t in home_rows],
             detected, st,
-            demand_by_key={t.space_key: t.total_ports for t in teap_rows})
+            demand_by_key={t.space_key: t.total_ports for t in home_rows})
     say(0.75, "storing results")
 
     by_key = {t.space_key: t for t in teap_rows}
@@ -1915,6 +1933,43 @@ def run_matching(db: Session, project: Project, progress: Progress = None, *,
             row.confirmed_by = None
             row.notes = m.notes
 
+    # Lines of another venue: never matched, said so on the row. A room a
+    # person tied to one by hand is still their decision and stays.
+    for t in foreign:
+        seen.add(t.id)
+        row = existing.get(t.id)
+        if row is None:
+            row = SpaceMatchRow(project_id=project.id, teap_space_id=t.id)
+            db.add(row)
+        touched[t.id] = row
+        why = (f"belongs to venue {t.venue_code}, not this project's venue "
+               f"{project.venue_code} - not matched")
+        row.exception = why
+        row.alternatives = []
+        row.auto_drawing_space_id = None
+        row.auto_method = "none"
+        row.auto_score = 0.0
+        row.auto_confidence = 0.0
+        row.auto_reason = why
+        row.auto_confirmed = False
+        if t.locked_verdict == "assigned" and t.locked_drawing_space_id is not None:
+            row.drawing_space_id = t.locked_drawing_space_id
+            row.method = t.locked_method or "manual"
+            row.confidence = row.score = 1.0
+            row.reason = "you assigned this room"
+            row.confirmed = bool(t.locked_confirmed)
+            row.rejected = False
+            row.confirmed_by = t.locked_by if t.locked_confirmed else None
+            locked += 1
+        else:
+            row.drawing_space_id = None
+            row.method = "none"
+            row.confidence = row.score = 0.0
+            row.reason = why
+            row.confirmed = False
+            row.rejected = t.locked_verdict == "rejected"
+            row.confirmed_by = t.locked_by if row.rejected else None
+
     # TEAP lines that no longer exist have no question left to answer.
     for teap_id, row in existing.items():
         if teap_id not in seen:
@@ -1953,6 +2008,7 @@ def run_matching(db: Session, project: Project, progress: Progress = None, *,
     stats["confirmed_by_matcher"] = stats["confirmed"] - stats["confirmed_by_you"]
     stats["match_rate"] = round(len(with_room) / len(rows), 4) if rows else 0.0
     stats["decisions_kept"] = locked
+    stats["other_venue"] = sum(1 for t in foreign if scope_by_id.get(t.id, True))
     if released:
         stats["decisions_released_room_gone"] = released
     # The check runs from the TEAP to the drawing and never back: a room on the
@@ -2144,13 +2200,26 @@ def build_route_network(db: Session, project: Project,
         scales)
 
 
+def has_teap_data_error(t: TeapSpace) -> bool:
+    """The TEAP itself got a value of this space wrong (rc5/rc6)."""
+    return any(str(w).startswith("TEAP data error") for w in (t.warnings or []))
+
+
 def in_scope(t: TeapSpace) -> bool:
-    """Whether the study is about this TEAP space — see :mod:`app.domain.scope`."""
-    return teap_scope(t.total_ports, t.lines)[0]
+    """Whether the study is about this TEAP space - see :mod:`app.domain.scope`.
+
+    A space with a TEAP data error stays on the list even at 0 ports (rc6):
+    every line of it wrong used to make it vanish as "the TEAP requests no
+    network port", which is not what the TEAP says."""
+    return teap_scope(t.total_ports, t.lines)[0] or has_teap_data_error(t)
 
 
 def scope_note(t: TeapSpace) -> Optional[str]:
-    return teap_scope(t.total_ports, t.lines)[1]
+    note = teap_scope(t.total_ports, t.lines)[1]
+    if note is None and not teap_scope(t.total_ports, t.lines)[0] and has_teap_data_error(t):
+        note = ("kept on the list at 0 ports: the TEAP has a data error on this space "
+                "(see the TEAP data error) - fix the TEAP and import it again")
+    return note
 
 
 def _space_area(teap: TeapSpace, ds: DrawingSpace, sh: Optional["SH.Sheets"] = None,
@@ -2426,6 +2495,93 @@ def undecline_wifi_space(db: Session, project: Project, space_key: Optional[str]
         project.wifi_declined = [k for k in project.wifi_declined if k != space_key]
 
 
+def wifi_hand_moved(db: Session, project_id: int) -> set[int]:
+    """Elements whose last word is a person's drag: an ``element.moved``
+    newer than any ``wireless.returned`` (5.3.0 undo) for the same element."""
+    last: dict[int, tuple[int, str]] = {}
+    for aid, eid, action in db.execute(
+            select(AuditLog.id, AuditLog.entity_id, AuditLog.action).where(
+                AuditLog.project_id == project_id,
+                AuditLog.action.in_(("element.moved", "wireless.returned")))
+            .order_by(AuditLog.id)):
+        if eid is not None:
+            last[int(eid)] = (aid, action)
+    return {eid for eid, (_a, action) in last.items() if action == "element.moved"}
+
+
+def wifi_decisions(db: Session, project: Project) -> dict:
+    """What a person decided about the Wi-Fi points (5.3.0) - the list the
+    Wi-Fi screen offers to undo: spaces whose point was deleted, and points
+    the step placed that were dragged away from where it put them."""
+    from .domain.pdf_ingest import DEMAND_KINDS
+    names = {t.space_key: (t.space_name, t.space_code) for t in db.execute(
+        select(TeapSpace).where(TeapSpace.project_id == project.id)).scalars()}
+    deleted = [{"space_key": k, "space_name": names.get(k, (k, None))[0],
+                "space_code": names.get(k, (None, None))[1]}
+               for k in (project.wifi_declined or [])]
+    moved_ids = wifi_hand_moved(db, project.id)
+    sh = SH.for_project(db, project.id)
+    moved = []
+    if moved_ids:
+        for e in db.execute(select(Element).where(
+                Element.project_id == project.id, Element.scenario_id.is_(None),
+                Element.kind.in_(DEMAND_KINDS), Element.id.in_(moved_ids),
+                Element.space_key.is_not(None)).order_by(Element.id)).scalars():
+            moved.append({"element_id": e.id, "label": e.label, "page": sh.of(e),
+                          "space_key": e.space_key,
+                          "space_name": names.get(e.space_key, (e.space_key, None))[0]})
+    return {"deleted": deleted, "moved": moved}
+
+
+def undo_wifi_decision(db: Session, project: Project, *, space_key: Optional[str] = None,
+                       element_id: Optional[int] = None, actor: str = "user") -> dict:
+    """Take back one Wi-Fi decision (5.3.0).
+
+    ``space_key``: the space's point was deleted - it is taken off the list
+    and *Place Wi-Fi* runs, which draws its point beside its room again.
+    ``element_id``: a dragged point goes back beside its space's room, and
+    the step treats it as its own again (it may follow the room later).
+    """
+    from .domain.pdf_ingest import DEMAND_KINDS
+    if space_key:
+        if space_key not in (project.wifi_declined or []):
+            raise ValidationError("that space's Wi-Fi point was not deleted by hand")
+        undecline_wifi_space(db, project, space_key)
+        audit(db, project.id, "wireless.undeleted", entity="project", entity_id=project.id,
+              actor=actor, payload={"space_key": space_key},
+              justification="the deletion of this space's Wi-Fi point was undone")
+        db.commit()
+        r = place_access_points_from_teap(db, project, actor=actor)
+        return {"undone": "deleted", "space_key": space_key, "placed": r.get("placed", 0),
+                "names": r.get("names", [])}
+    e = db.get(Element, element_id) if element_id else None
+    if e is None or e.project_id != project.id or e.kind not in DEMAND_KINDS:
+        raise ValidationError("Wi-Fi point not found")
+    if e.id not in wifi_hand_moved(db, project.id):
+        raise ValidationError("that Wi-Fi point was not moved by hand")
+    sh = SH.for_project(db, project.id)
+    ds = db.execute(
+        select(DrawingSpace).join(SpaceMatchRow, SpaceMatchRow.drawing_space_id == DrawingSpace.id)
+        .join(TeapSpace, TeapSpace.id == SpaceMatchRow.teap_space_id)
+        .where(TeapSpace.project_id == project.id, TeapSpace.space_key == e.space_key,
+               SpaceMatchRow.rejected.is_(False))).scalars().first()
+    if ds is None:
+        raise ValidationError("its space has no room on the drawing to go back to")
+    taken = [(o.x, o.y) for o in db.execute(select(Element).where(
+        Element.project_id == project.id, Element.scenario_id.is_(None),
+        Element.kind.in_(DEMAND_KINDS), Element.id != e.id)).scalars()
+        if sh.of(o) == sh.of(ds)]
+    x, y = free_wifi_slot(ds.x + TEAP_AP_OFFSET[0], ds.y + TEAP_AP_OFFSET[1], taken)
+    frm = {"page": sh.of(e), "x": e.x, "y": e.y}
+    e.drawing_id, e.page, e.x, e.y = ds.drawing_id, ds.page, x, y
+    audit(db, project.id, "wireless.returned", entity="element", entity_id=e.id,
+          actor=actor, payload={"label": e.label, "space_key": e.space_key, "from": frm,
+                                "to": {"page": sh.of(ds), "x": x, "y": y}},
+          justification="the drag of this Wi-Fi point was undone: back beside its room")
+    db.commit()
+    return {"undone": "moved", "element_id": e.id, "label": e.label}
+
+
 def next_wireless_label(db: Session, project_id: int, kind: str) -> str:
     """The next free ``WIFI-n`` of this project — numbered per project, never
     reused within it, whatever placed the earlier ones."""
@@ -2565,9 +2721,9 @@ def _place_access_points_from_teap(db: Session, project: Project, *, actor: str)
         cc = M.canonical_code(d.space_code)
         if cc and sh.of(d) not in key_pages:
             labels_by_code.setdefault(cc, []).append((sh.of(d), d.x, d.y))
-    # The points a person dragged: they stay where the person put them.
-    hand_moved = set(db.execute(select(AuditLog.entity_id).where(
-        AuditLog.project_id == project.id, AuditLog.action == "element.moved")).scalars())
+    # The points a person dragged: they stay where the person put them -
+    # unless the person later undid it (5.3.0, "wireless.returned").
+    hand_moved = wifi_hand_moved(db, project.id)
     seen: set[str] = set()
     for teap, match, ds in rows:
         if teap.space_key in seen or not in_scope(teap):
@@ -2616,7 +2772,9 @@ def _place_access_points_from_teap(db: Session, project: Project, *, actor: str)
             # newest first; the oldest — the one most likely dragged into
             # place — stays.
             extra = len(have) - want
-            for e in sorted((e for e in have if e.origin == "teap"),
+            # A point the person dragged is their decision (5.3.0): it is
+            # never the one taken back.
+            for e in sorted((e for e in have if e.origin == "teap" and e.id not in hand_moved),
                             key=lambda e: e.id, reverse=True)[:extra]:
                 totals["removed_names"].append(e.label)
                 db.delete(e)
@@ -3147,7 +3305,17 @@ class _StoredEvaluation:
         self.warnings = data.get("warnings", [])
         self.requires_human_validation = bool(data.get("requires_human_validation"))
         self.farthest_point_distance_m = data.get("farthest_point_distance_m")
-        self.method = type("M", (), {"value": data.get("method", "")})()
+        self.method = _StoredMethod(data.get("method", ""))
+
+
+class _StoredMethod:
+    """The method of a stored evaluation (``.value`` like the enum). A class
+    of its own so a replayed scenario can be sent to the child interpreter
+    that writes the marked-up PDF (5.3.0) - a class made with ``type()`` on
+    the fly cannot be pickled."""
+
+    def __init__(self, value: str):
+        self.value = value
 
 
 # ``_optimisation_view`` drew what the solver proposed, from what the solver

@@ -1000,6 +1000,7 @@ export const PT: Record<string, string> = {
   "Pending — needs a room or a NER": "Pendente — precisa de sala ou NER",
   "within the limit": "dentro do limite",
   "near the limit": "perto do limite",
+  "TEAP data error": "Erro nos dados do TEAP",
   "out of limit": "fora do limite",
   "insufficient capacity": "capacidade insuficiente",
   "no NER reaches it": "nenhuma NER alcança",
@@ -1732,10 +1733,21 @@ export const PT: Record<string, string> = {
     "ponto(s) estão em cima de outro, em",
   "no Wi-Fi point sits on top of another one":
     "nenhum ponto Wi-Fi está em cima de outro",
-  "A Wi-Fi point you delete stays deleted: running this step again leaves its space without one. Draw a point with +Wi-Fi for the space, or tie one to it, to bring it back.":
-    "Um ponto Wi-Fi que você apaga continua apagado: rodar este passo de novo deixa o espaço sem ponto. Desenhe um ponto com +Wi-Fi para o espaço, ou vincule um a ele, para trazê-lo de volta.",
-  "Place Wi-Fi from the TEAP will not put it back; draw one with +Wi-Fi to bring it back.":
-    "Place Wi-Fi from the TEAP não vai colocá-lo de volta; desenhe um com +Wi-Fi para trazê-lo de volta.",
+  "Your changes stand: a Wi-Fi point you delete stays deleted and one you drag stays where you put them, whenever this step runs again. Each one can be undone below.":
+    "As suas mudanças prevalecem: um ponto Wi-Fi que você apaga continua apagado e um que você arrasta fica onde você colocou, sempre que este passo rodar de novo. Cada uma pode ser desfeita abaixo.",
+  "Your Wi-Fi decisions": "Suas decisões de Wi-Fi",
+  "None: no Wi-Fi point placed from the TEAP was deleted or dragged by hand.":
+    "Nenhuma: nenhum ponto Wi-Fi colocado a partir do TEAP foi apagado ou arrastado à mão.",
+  "Deleted by you": "Apagado por você",
+  "Dragged by you": "Arrastado por você",
+  "Undoing…": "Desfazendo…",
+  "Undo - bring its Wi-Fi point back": "Desfazer - trazer o ponto Wi-Fi de volta",
+  "Undo - put it back beside its room": "Desfazer - voltar para junto da sala",
+  "Its Wi-Fi point is back beside its room": "O ponto Wi-Fi voltou para junto da sala",
+  "Back beside its room": "De volta junto da sala",
+  "Run analysis to measure it.": "Rode a análise para medi-lo.",
+  "Place Wi-Fi from the TEAP will not put it back; undo it on the Wi-Fi screen to bring it back.":
+    "O Place Wi-Fi from the TEAP não o recoloca; desfaça na tela Wi-Fi para trazê-lo de volta.",
   // --- 5.0.0: the composite map -------------------------------------------
   "Composite map":
     "Mapa composto",
@@ -1915,4 +1927,15 @@ export const PT: Record<string, string> = {
     "Ela vira uma NER própria, registrada como outra sala. Nome da nova NER (deixe vazio para o próximo nome livre da sequência):",
   "Separated": "Separada",
   "a NER of its own; check its criticality on its row.": "uma NER própria; confira a criticidade na linha dela.",
+  "placed roughly - move it": "posicionada aproximadamente - mova",
+  "placed by you": "posicionada por você",
+  "Move this sheet on the map, a few metres at a time": "Mover esta folha no mapa, alguns metros por vez",
+  "Left": "Esquerda",
+  "Up": "Acima",
+  "Down": "Abaixo",
+  "Right": "Direita",
+  "Moves the picture only: NERs and spaces stay where they are on their sheets.":
+    "Move só a imagem: NERs e espaços continuam onde estão nas folhas.",
+  "Purple: the app could not place it and set it beside the map - use Move to put it in place. Green: placed by you; it keeps that place when the map is built again.":
+    "Roxo: o app não conseguiu posicionar e deixou ao lado do mapa - use Mover para colocá-la no lugar. Verde: posicionada por você; mantém o lugar quando o mapa é montado de novo.",
 };

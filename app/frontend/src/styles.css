@@ -67,6 +67,7 @@ a { color: var(--accent); }
 .sidebar .sub { font-size: 11px; color: var(--muted); margin: 0 16px 14px; }
 /* The version sits under the subtitle; the copyright at the foot of the column. */
 .sidebar .sub.version { margin-top: -10px; font-family: ui-monospace, Consolas, monospace; letter-spacing: 0.04em; }
+.sidebar .sub.version .build-tag { color: #c0392b; font-weight: 700; }
 .sidebar .copyright {
   margin-top: auto;
   padding: 12px 16px 14px;
@@ -136,6 +137,7 @@ a { color: var(--accent); }
 .grid.c2 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.c5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.grid.c6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
 .grid.c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }

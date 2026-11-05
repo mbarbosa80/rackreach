@@ -2270,10 +2270,11 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
  * click to use one), and a link to the row on Demand per space and to the
  * drawing.
  */
-type ExKey = "all" | "pending" | "problem" | "near" | "not_measured";
+type ExKey = "all" | "teap" | "pending" | "problem" | "near" | "not_measured";
 
 const EX_TILES: [ExKey, string, string][] = [
   ["all", "all that need you", "var(--accent, #4c8dff)"],
+  ["teap", "TEAP data error", "var(--bad)"],
   ["pending", "Pending — needs a room or a NER", GROUP_COLOUR.pending],
   ["problem", "Out of limit / over capacity", GROUP_COLOUR.problem],
   ["near", "near the limit", "var(--warn)"],
@@ -2283,13 +2284,14 @@ const EX_TILES: [ExKey, string, string][] = [
 /** Which pile of the Exceptions step a Demand row is in, or null when it is
  *  served within the limit and needs nothing. */
 function exKind(r: any): ExKey | null {
+  if ((r.teap_errors || []).length) return "teap";
   if (r.group === "pending") return "pending";
   if (r.group === "problem") return "problem";
   if (r.status === "near_limit") return "near";
   if (r.group === "not_measured") return "not_measured";
   return null;
 }
-const EX_ORDER: Record<string, number> = { pending: 0, problem: 1, near: 2, not_measured: 3 };
+const EX_ORDER: Record<string, number> = { teap: -1, pending: 0, problem: 1, near: 2, not_measured: 3 };
 
 export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
   const sx = useSort<any>();
@@ -2313,9 +2315,12 @@ export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
                         where: r.page ?? r.matched_page, served: r.assigned_ner || r.serving_ner });
     }
     for (const w of (pins as any).wireless_points || []) {
+      // rc6: a point on another level than the NER it follows (WIFI-55 on
+      // VBB) is "served - not measured", like a space, not invisible.
       const k: ExKey | null = w.status === "near_limit" ? "near"
         : ["out_of_limit", "insufficient_capacity"].includes(w.status) ? "problem"
-        : w.status && !["served", "cross_level_not_measured"].includes(w.status) ? "pending" : null;
+        : w.status === "cross_level_not_measured" ? "not_measured"
+        : w.status && w.status !== "served" ? "pending" : null;
       if (k) out.push({ ...w, ex: k, row_kind: "wireless", code: w.label,
                         name: w.space_name ? `${t("wireless point")} · ${w.space_name}` : t("wireless point"),
                         where: w.page, served: w.serving_ner,
@@ -2382,7 +2387,7 @@ export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
         <div style={{ marginTop: 10 }}>
           <JobBar job={analysisJob.job} onCancel={analysisJob.cancel} onDismiss={analysisJob.clear} />
         </div>
-        <div className="grid c5" style={{ marginTop: 12 }}>
+        <div className="grid c6" style={{ marginTop: 12 }}>
           {EX_TILES.map(([k, label, colour]) => (
             <button type="button" key={k} className={`stat tile${tile === k ? " on" : ""}`}
                     aria-pressed={tile === k}
@@ -2422,6 +2427,8 @@ export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
                       {r.row_kind === "space"
                         ? <GroupPill group={r.group} reason={r.group_reason} />
                         : <StatusPill status={r.status} />}
+                      {(r.teap_errors || []).map((w: string, i: number) => (
+                        <div key={i} className="small" style={{ color: "var(--bad)" }}>{w}</div>))}
                     </td>
                     <td style={{ minWidth: 220 }}>
                       <select value={r.assigned_ner_asset_id || ""}
@@ -2685,7 +2692,27 @@ export function WifiPanel({ ctx }: { ctx: Ctx }) {
   const { data: ners } = useAsync(
     () => (p ? api.ners(p.id) : Promise.resolve({ ners: [] })), [p?.id], { ners: [] } as any);
   const roomOptions = useMemo(() => nerRoomOptions(ners), [ners]);
+  const { data: decisions, reload: reloadDecisions } = useAsync(
+    () => (p ? api.wifiDecisions(p.id) : Promise.resolve({ deleted: [], moved: [] })),
+    [p?.id], { deleted: [], moved: [] } as any);
+  const [undoing, setUndoing] = useState<string | null>(null);
   if (!p) return null;
+
+  /** Take back one Wi-Fi decision (5.3.0). */
+  const undoWifi = async (key: string, body: { space_key?: string; element_id?: number }, what: string) => {
+    if (undoing) return;
+    setUndoing(key);
+    try {
+      const r = await api.wifiUndo(p.id, body);
+      await ctx.reload();
+      ctx.notify(r.undone === "deleted"
+        ? `${what}: ${t("Its Wi-Fi point is back beside its room")}${r.names?.length ? ` (${r.names.join(", ")})` : ""}. ${t("Run analysis to measure it.")}`
+        : `${what}: ${t("Back beside its room")}. ${t("Run analysis to measure it.")}`);
+    } catch (e: any) { ctx.notify(e.message, "err"); }
+    finally { setUndoing(null); reloadDecisions(); reloadPins(); reloadStacked(); }
+  };
+  const decDeleted: any[] = (decisions as any)?.deleted || [];
+  const decMoved: any[] = (decisions as any)?.moved || [];
 
   const wirelessPoints: any[] = (pins as any).wireless_points || [];
   const analysed = (pins as any).analysed_at;
@@ -2782,6 +2809,7 @@ export function WifiPanel({ ctx }: { ctx: Ctx }) {
       ? `${t("✕ clear my choice — back to its TEAP space's NER")}: ${w.space_ner}`
       : t("✕ clear my choice — back to the nearest NER rule");
     if (w.space_ner) return `${t("as its TEAP space")}: ${w.space_ner}`;
+    if (w.follows_space && w.serving_ner) return `${t("as its TEAP space")}: ${w.serving_ner}`;
     if (w.serving_ner) return `${t("nearest:")} ${w.serving_ner}`;
     if (!w.status) return t("— not analysed yet —");
     return w.nearest_ner
@@ -2819,9 +2847,39 @@ export function WifiPanel({ ctx }: { ctx: Ctx }) {
           </span>
         </div>
         <p className="muted small" style={{ marginBottom: 0 }}>
-          {t("A Wi-Fi point you delete stays deleted: running this step again leaves its space without one. Draw a point with +Wi-Fi for the space, or tie one to it, to bring it back.")}
+          {t("Your changes stand: a Wi-Fi point you delete stays deleted and one you drag stays where you put them, whenever this step runs again. Each one can be undone below.")}
         </p>
         <JobBar job={job.job} onCancel={job.cancel} onDismiss={job.clear} />
+      </div>
+
+      <div className="card">
+        <h2>{t("Your Wi-Fi decisions")} ({decDeleted.length + decMoved.length})</h2>
+        {decDeleted.length + decMoved.length === 0 ? (
+          <p className="muted small" style={{ margin: 0 }}>
+            {t("None: no Wi-Fi point placed from the TEAP was deleted or dragged by hand.")}
+          </p>
+        ) : (
+          <ul className="small" style={{ margin: 0, paddingLeft: 18 }}>
+            {decDeleted.map((d: any) => (
+              <li key={`d-${d.space_key}`} style={{ marginBottom: 4 }}>
+                {t("Deleted by you")}: <b>{d.space_code ? `${d.space_code} ` : ""}{d.space_name}</b>{" "}
+                <button className="small" disabled={!!undoing}
+                        onClick={() => void undoWifi(`d-${d.space_key}`, { space_key: d.space_key }, d.space_name)}>
+                  {undoing === `d-${d.space_key}` ? t("Undoing…") : t("Undo - bring its Wi-Fi point back")}
+                </button>
+              </li>
+            ))}
+            {decMoved.map((m: any) => (
+              <li key={`m-${m.element_id}`} style={{ marginBottom: 4 }}>
+                {t("Dragged by you")}: <span className="mono">{m.label}</span> · {m.space_name} · {pageName(p, m.page)}{" "}
+                <button className="small" disabled={!!undoing}
+                        onClick={() => void undoWifi(`m-${m.element_id}`, { element_id: m.element_id }, m.label)}>
+                  {undoing === `m-${m.element_id}` ? t("Undoing…") : t("Undo - put it back beside its room")}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
       </div>
 
       <div className="card">

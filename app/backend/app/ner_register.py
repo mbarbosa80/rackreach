@@ -72,7 +72,8 @@ def _live_twin(db: Session, project: Project, asset: NerAsset, name: str) -> Opt
         return next((o for o in sess.execute(select(NerAsset).where(
             NerAsset.project_id == project.id, NerAsset.id != asset.id,
             NerAsset.deleted_at.is_(None), NerAsset.merged_into_id.is_(None))).scalars()
-            if name_key(o.display_name) == key
+            if (name_key(o.display_name) == key
+                or normalise_label(o.display_name) == normalise_label(name))
             and o.keep_decision != KeepDecision.REJECT and o.status != NerStatus.REJECTED), None)
 
     hit = _find(db)
@@ -84,6 +85,30 @@ def _live_twin(db: Session, project: Project, asset: NerAsset, name: str) -> Opt
         return db.get(NerAsset, other.id) if other is not None else None
     finally:
         fresh.close()
+
+
+_CONTROL_RX = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def check_display_name(name: str) -> str:
+    """A NER name a person typed, or the reason it cannot be one (rc6).
+
+    Refused: control characters (a pasted tab or bell broke the workbook
+    export), a leading = + - @ (Excel would read the name as a formula: a
+    broken one asks to repair the file, a HYPERLINK one is formula injection),
+    more than 80 characters, and a name with no letter or digit."""
+    name = (name or "").strip()
+    if _CONTROL_RX.search(name):
+        raise RegisterError("a NER name cannot contain a tab, a line break or another "
+                            "control character")
+    if name[:1] in ("=", "+", "-", "@"):
+        raise RegisterError("a NER name cannot start with = + - or @ - Excel would read it "
+                            "as a formula")
+    if len(name) > 80:
+        raise RegisterError("a NER name is at most 80 characters")
+    if name and not re.search(r"[A-Za-z0-9]", name):
+        raise RegisterError("a NER name needs at least one letter or digit")
+    return name
 
 
 def name_key(name: Optional[str]) -> str:
@@ -360,6 +385,7 @@ def rename(db: Session, project: Project, asset: NerAsset, new_name: str, *,
     two rows with one name are two NERs counted twice that no workbook can tell
     apart (the VFF project: NER24 renamed NER23 beside NER23). The
     same room is consolidated, not renamed alike."""
+    new_name = check_display_name(new_name)
     new_name = (new_name or "").strip()
     if not new_name:
         raise RegisterError("a NER name cannot be empty")
@@ -862,7 +888,9 @@ def detach_occurrence(db: Session, project: Project, element: Element, *,
             "an empty NER. Remove the NER instead if that is what you mean.")
     name = (name or "").strip() or None
     if name is not None:
-        if name_key(name) == name_key(old.display_name):
+        name = check_display_name(name)
+        if (name_key(name) == name_key(old.display_name)
+                or normalise_label(name) == normalise_label(old.display_name)):
             raise NameInUse(f"{old.display_name} is the name of the NER this marker is "
                             f"separated from — choose another name", old)
         twin = _live_twin(db, project, old, name)
@@ -872,6 +900,12 @@ def detach_occurrence(db: Session, project: Project, element: Element, *,
     full = _page_meta(db, project.id)
     meta = SH.PageMeta(full.sheets, {p: (m[0], m[1]) for p, m in full.items()})
     new_asset = migrate._asset_from_element(db, element, meta)
+    if name is None:
+        # An empty name is the next free name of the series (rc4, made
+        # unconditional in rc6): keeping the marker's own label could take a
+        # removed NER's name - and block its Restore - or keep "tmp0".
+        name = next_sequential_name(live_names(db, project.id),
+                                    element.kind == "NER_CRITICAL")
     if name is not None:
         new_asset.display_name = name
         element.label = name

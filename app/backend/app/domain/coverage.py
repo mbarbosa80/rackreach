@@ -401,6 +401,23 @@ def _assign_unplaced(area: Area, ports: float, demand_type: DemandType,
         })
 
 
+#: A traced route counts only when enough of it is actually traced (5.3.0
+#: rc5). Marcelo, 4 Nov 2026, after the independent tester showed a tray
+#: drawn for one room "catching" its neighbours through the 15 m join, even
+#: with 0.0 m traced: a route counts from MIN_TRACED_M metres traced AND more
+#: traced than the two straight lead-ins together. Below that the space is
+#: measured in a straight line, as if no route were drawn. On his 15 projects
+#: this releases 3 measurements, all with 0.0 m traced.
+MIN_TRACED_M = 5.0
+
+
+def route_counts(r: Optional[dict]) -> bool:
+    """Is this route mostly traced, or mostly straight lead-in?"""
+    if not r:
+        return False
+    traced = float(r.get("traced_m") or 0.0)
+    return traced >= MIN_TRACED_M and traced > float(r.get("lead_in_m") or 0.0)
+
 def compute_coverage(
     *,
     areas: Sequence[tuple[Area, float, DemandType, Optional[bool], bool]],
@@ -533,8 +550,18 @@ def compute_coverage(
         #: confirmed label of the same space, each on its own sheet and scale.
         via: dict[str, Area] = {}
 
+        #: NERs a traced route reaches from this space (5.3.0). Marcelo,
+        #: 4 Nov 2026, after a route on VKK made a room *lose* to one with no
+        #: route: "sempre medir pela rota desenhada". A route length is never
+        #: shorter than the straight line, so comparing one room's route with
+        #: another room's straight line punished the room somebody had traced.
+        #: When a route reaches the space, only the rooms it reaches compete,
+        #: and a route measured on any sheet the space appears on beats a
+        #: straight line measured on another.
+        routed: set[str] = set()
         for ner in serving:
             best: Optional[tuple[float, DistanceEvaluation, Area]] = None
+            best_route: Optional[tuple[float, DistanceEvaluation, Area]] = None
             for occ in (area, *area.occurrences):
                 occ_scale = scale_for_page.get(occ.page)
                 # The room's marker on this sheet when it has one (3.0.0):
@@ -544,9 +571,19 @@ def compute_coverage(
                 for npt in ner.points:
                     route_len = None
                     r = None
+                    ignored = None
                     if network is not None:
                         r = network.route_length_m(occ.representative_point(), npt,
                                                    occ_scale) if occ_scale else None
+                        # A route that is mostly straight lead-in does not
+                        # count (rc5), and that holds through a shaft to
+                        # another level too (rc7, Marcelo, 4 Nov 2026: a 4 m
+                        # shaft with 24 m of lead-in took a space from a
+                        # NER 14.9 m away on its own floor). Across levels
+                        # there is no straight line to fall back on, so that
+                        # NER is simply not a candidate for the space.
+                        if r and not route_counts(r):
+                            ignored, r = r, None
                         if r:
                             route_len = r["length_m"]
                     if occ.page != npt.page and route_len is None:
@@ -555,6 +592,13 @@ def compute_coverage(
                                        rules=rules, demand_type=demand_type,
                                        route_length_m=route_len,
                                        match_confirmed=match_confirmed)
+                    if ignored:
+                        ev.assumptions.append(
+                            f"a route reaches {ner.label} but only "
+                            f"{ignored['traced_m']:.2f} m of it is traced against "
+                            f"{ignored['lead_in_m']:.1f} m of straight lead-in - it does "
+                            f"not count (a route counts from {MIN_TRACED_M:g} m traced and "
+                            f"more traced than lead-in); measured in a straight line.")
                     if r:
                         # How much of the length was traced and how much is
                         # the straight lead-in at the two ends (4.7.0).
@@ -563,16 +607,37 @@ def compute_coverage(
                             f"{r['lead_in_m']:.1f} m straight lead-in at the two ends.")
                     if ev.effective_distance_m is None:
                         continue
-                    if best is None or ev.effective_distance_m < best[0]:
-                        best = (ev.effective_distance_m, ev, occ)
+                    cand = (ev.effective_distance_m, ev, occ)
+                    if r:
+                        if best_route is None or cand[0] < best_route[0]:
+                            best_route = cand
+                    elif best is None or cand[0] < best[0]:
+                        best = cand
+            if best_route is not None:
+                best = best_route
+                routed.add(ner.key)
             if best is not None:
                 scored.append((best[0], ner, best[1]))
                 via[ner.key] = best[2]
 
         scored.sort(key=lambda t: (t[0], t[1].key))
+        # A route reaches the space: the rooms it does not reach step aside
+        # (a person's pin always stays a candidate - the pin rule decides it).
+        set_aside: list[tuple[float, NER, DistanceEvaluation]] = []
+        if routed:
+            keep = pinned.get(area.key)
+            set_aside = [t for t in scored if t[1].key not in routed and t[1].key != keep]
+            scored = [t for t in scored if t[1].key in routed or t[1].key == keep]
 
         chosen: Optional[tuple[Optional[float], NER, DistanceEvaluation]] = None
         reasons: list[str] = _wireless_notes(area)
+        if set_aside:
+            reasons.append(
+                "a traced route reaches this space, so only the NER(s) it reaches "
+                "were compared; not compared (no route to them): "
+                + ", ".join(f"{n.label} at {d:.1f} m in a straight line"
+                            for d, n, _ in set_aside[:3])
+                + (f" and {len(set_aside) - 3} more" if len(set_aside) > 3 else ""))
         rejected_for_capacity = False
         rejected_for_criticality = False
         # A pin to a room on another page that nobody has declared cross-level:

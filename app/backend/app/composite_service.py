@@ -169,6 +169,7 @@ def summary(m: CompositeMap, drawing: Optional[Drawing] = None) -> dict:
             "unconfirmed": states.get("unconfirmed", 0),
             "contradicted": states.get("contradicted", 0),
             "not_aligned": states.get("not_aligned", 0), "excluded": excluded,
+            "rough": states.get("rough", 0), "manual": states.get("manual", 0),
             "built_at": built.isoformat() if built else None, "built_by": m.built_by,
             "app_version": m.app_version, "has_picture": bool(m.frame),
             # The book was replaced after the map was built.
@@ -205,8 +206,18 @@ def build(db: Session, project: Project, drawing: Drawing, *, only: Optional[lis
             CompositeMap.drawing_id == drawing.id,
             CompositeMap.group_key == g["key"])).scalar_one_or_none()
         excluded = {s["page"] for s in (row.sheets if row else []) if s.get("excluded")}
+        # A sheet a person moved stays where they put it (5.3.0).
+        manual = {s["page"]: s for s in (row.sheets if row else [])
+                  if s.get("state") == "manual" and "tx" in s}
         for s in g["sheets"]:
             s["excluded"] = s["page"] in excluded
+            m = manual.get(s["page"])
+            if m is not None:
+                s.update(tx=m["tx"], ty=m["ty"], s=m.get("s", s.get("s", 1.0)),
+                         clip=m.get("clip", s.get("clip")), view=m.get("view", s.get("view")),
+                         method="moved by you", state="manual")
+        if manual:
+            g["frame"] = C.frame_of(g["sheets"]) or g["frame"]
         if row is None:
             row = CompositeMap(project_id=project.id, drawing_id=drawing.id, group_key=g["key"])
             db.add(row)
@@ -323,6 +334,46 @@ def set_excluded(db: Session, project: Project, cmap: CompositeMap, page: int, e
     _audit(db, project.id, "composite.sheet_excluded", cmap,
            {"group": cmap.label, "page": page, "sheet": hit[0].get("sheet_number"),
             "excluded": bool(excluded)}, actor=actor)
+    db.commit()
+    draw_ahead(cmap)
+    return summary(cmap, drawing)
+
+
+def move_sheet(db: Session, project: Project, cmap: CompositeMap, page: int,
+               dx_m: float, dy_m: float, *, actor: str = "user") -> dict:
+    """Move one sheet on the map by ``dx_m`` / ``dy_m`` metres (5.3.0).
+
+    For a sheet the app placed roughly, or anywhere it is wrong. The sheet is
+    then ``manual`` - placed by a person - and keeps that place when the map
+    is built again. It moves the picture only: NERs and spaces keep their
+    positions on their sheets, and no distance the analysis computes changes.
+    """
+    if abs(dx_m) > 2000 or abs(dy_m) > 2000:
+        raise CompositeError("move a sheet at most 2 km at a time")
+    sheets = [dict(x) for x in cmap.sheets or []]
+    hit = [x for x in sheets if x["page"] == page]
+    if not hit:
+        raise CompositeError(f"page {page} is not a sheet of this map")
+    sh = hit[0]
+    if "tx" not in sh or not sh.get("mpu"):
+        raise CompositeError("this sheet has no scale - it cannot be placed on the map")
+    if sh.get("excluded"):
+        raise CompositeError("put the sheet back on the map before moving it")
+    frm = {"tx": sh["tx"], "ty": sh["ty"], "state": sh.get("state")}
+    sh["tx"] += dx_m / sh["mpu"]
+    sh["ty"] += dy_m / sh["mpu"]
+    sh["state"], sh["method"] = "manual", "moved by you"
+    cmap.sheets = sheets
+    cmap.frame = C.frame_of(sheets) or cmap.frame
+    drawing = db.get(Drawing, cmap.drawing_id)
+    _drop_files(cmap)
+    cmap.base_file = ""
+    if cmap.frame:
+        _compose(cmap, drawing)
+    _audit(db, project.id, "composite.sheet_moved", cmap,
+           {"group": cmap.label, "page": page, "sheet": sh.get("sheet_number"),
+            "dx_m": round(dx_m, 2), "dy_m": round(dy_m, 2), "from": frm,
+            "to": {"tx": sh["tx"], "ty": sh["ty"]}}, actor=actor)
     db.commit()
     draw_ahead(cmap)
     return summary(cmap, drawing)
