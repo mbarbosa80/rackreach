@@ -151,7 +151,7 @@ def test_n8_an_empty_name_is_always_the_next_name_of_the_series(client, samples)
 
 # ---- N11 (rc7) - the rule holds through a shaft ------------------------------
 
-def _n11(shaft_m, foot_x):
+def _n11(shaft_m, foot_x, here_x=-149, demand=None, pinned=None):
     from app.domain.coverage import NER, compute_coverage
     from app.domain.distance import DemandType, DistanceRules
     from app.domain.geometry import Point
@@ -163,12 +163,13 @@ def _n11(shaft_m, foot_x):
         return NER(key=key, label=key, kind=ElementKind.NER_CRITICAL,
                    point=Point(x, 0, page), critical=True, total_ports=None)
     up = n("UP", 0, 1)                 # the NER on the other level
-    here = n("HERE", -149, 2)          # 14.9 m away on the space's own floor
+    here = n("HERE", here_x, 2)        # 14.9 m away on the space's own floor by default
     net = build_network([], [VerticalLink("S1", Point(foot_x, 0, 1), Point(foot_x, 0, 2), shaft_m)],
                         {1: DECI, 2: DECI})
-    res = compute_coverage(areas=[(_a("S", 0, 0, page=2), 2.0, DemandType.GENERAL, None, True)],
+    res = compute_coverage(areas=[(_a("S", 0, 0, page=2), 2.0, demand or DemandType.GENERAL,
+                                   None, True)],
                            ners=[up, here], scale_for_page={1: DECI, 2: DECI},
-                           rules=DistanceRules(), network=net)
+                           rules=DistanceRules(), network=net, pinned=pinned)
     return res.assignments[0]
 
 
@@ -177,6 +178,15 @@ def test_n11_a_shaft_that_is_mostly_lead_in_does_not_take_the_space():
     assert x.ner_key == "HERE", (x.ner_key, x.reasons)
 
 
-def test_n11_a_real_shaft_route_still_serves_across_levels():
+def test_n11_a_real_shaft_route_does_not_take_the_space_from_its_own_floor():
+    """Owner decision on N11, 6 Nov 2026 (5.5.1-rc3): "same floor first". The
+    8 m shaft counts (12 m to UP), but HERE serves within 90 m on the space's
+    own floor, so UP is named and not used. Until rc2 UP took the space."""
     x = _n11(8.0, 20)                  # 8 m shaft, 2 m + 2 m of lead-in
+    assert x.ner_key == "HERE", (x.ner_key, x.reasons)
+    assert any("UP" in r and "not used" in r for r in x.reasons), x.reasons
+
+
+def test_n11_a_real_shaft_route_serves_when_the_floor_has_no_ner_within_limit():
+    x = _n11(8.0, 20, here_x=-1000)    # HERE 100 m away: out of the 90 m limit
     assert x.ner_key == "UP", (x.ner_key, x.reasons)

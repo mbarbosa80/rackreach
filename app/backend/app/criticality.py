@@ -101,13 +101,14 @@ def apply(db: Session, project: Project, matrix: CriticalityMatrix, *,
         "changes": changes[:400],
         "enforced": bool(project.criticality_enforced),
         "enforcement_note": (
-            "Criticality is recorded and reported. It does not refuse any room "
-            "for any space unless this project has enforcement switched on, "
-            "which it does not by default — turning it on re-opens coverage "
-            "results that may already have been sent to the drawing team."
+            "Criticality is recorded and reported: a space marked critical "
+            "served by a non-critical NER gets a criticality alert. It does not "
+            "refuse any room for any space unless this project has enforcement "
+            "switched on, which it does not by default — turning it on re-opens "
+            "coverage results that may already have been sent to the drawing team."
             if not project.criticality_enforced else
             "Enforcement is ON for this project: a non-critical room will be "
-            "refused for a space the matrix marks critical."),
+            "refused for a space marked critical."),
     })
     return report
 

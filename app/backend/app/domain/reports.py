@@ -34,7 +34,7 @@ RULE_MEANING = {
     "D": "nothing usable — the fallback is applied and the line is flagged "
          "for review",
 }
-from .distance import (GROUP_LABEL, PENDING_NO_ROOM, PENDING_NOT_ANALYSED,
+from .distance import (ALERT_LABEL, GROUP_LABEL, PENDING_NO_ROOM, PENDING_NOT_ANALYSED,
                        STATUS_LABEL as STATUS_WORDS, DistanceRules, Group, Status,
                        group_of)
 from .matching import normalise_code
@@ -163,6 +163,9 @@ STATUS_FILL = {
     # No room on the drawing, NER chosen by hand: nothing to paint — the
     # space has no position — but the table needs a colour for its rows.
     Status.ASSIGNED_NOT_PLACED: (0.55, 0.55, 0.55),
+    # A critical space with only non-critical NERs within the limit (5.6.0):
+    # a decision waits, neither served nor out of limit - its own colour.
+    Status.NO_CRITICAL_NER_IN_LIMIT: (0.72, 0.18, 0.47),
 }
 
 # Seven rows. The exported plan's legend matches the one on screen, and both
@@ -1243,6 +1246,12 @@ def export_workbook(
              else round(ev.effective_distance_m, 2)),
             group, detail,
         )
+        # The criticality alert (5.6.0): the label, and the nearest critical
+        # NER the row suggests - two columns at the end, so every column a
+        # pivot or a formula already reads keeps its letter. The status stays
+        # what it is.
+        alert = (ALERT_LABEL.get(a.criticality_alert or "", "") if a else "",
+                 _suggestion_text(a) if a and a.criticality_alert else "")
         head = (d.space_code, d.space_name,
                 getattr(a.area, "building", "") if a else "",
                 getattr(a.area, "level", "") if a else "",
@@ -1263,19 +1272,19 @@ def export_workbook(
             teap_rows.append(head + (
                 ln.row_number, ln.product_code, ln.product_description,
                 ln.quantity, ln.ports,
-            ) + tail + (_needs_validation(a, ev, ln), ln.ports))
+            ) + tail + (_needs_validation(a, ev, ln), ln.ports) + alert)
         # A space with no TEAP lines behind it still gets one row, or it would
         # disappear from the sheet entirely — and a space that reached the
         # coverage analysis and then vanished from the report is the one kind of
         # omission nobody catches.
         if not d.lines:
             teap_rows.append(head + ("", "", "", "", d.total_ports)
-                             + tail + (_needs_validation(a, ev, None), d.total_ports))
+                             + tail + (_needs_validation(a, ev, None), d.total_ports) + alert)
     _write_sheet(ws, [
         "Space code", "Space name", "Building", "Level", "Page",
         "TEAP row", "Product code", "Service / product", "Qty", "Ports",
         "Serving NER", "NER critical", "Distance (m)", "Status", "Status detail",
-        "Needs validation", "Counted ports",
+        "Needs validation", "Counted ports", "Criticality alert", "Critical NER suggested",
     ], teap_rows)
 
     # ------------------------------------------------------------------
@@ -1612,6 +1621,24 @@ def _publicize_workbook(wb) -> None:
                     cell.value = term(v)
 
 
+def _suggestion_text(a) -> str:
+    """The nearest critical NER an alerted row suggests, in words:
+    "C at 24.0 m (in a straight line), within the limit, out of ports"."""
+    s = a.critical_suggestion
+    if not s:
+        return "no critical NER measurable"
+    how = "by the traced route" if s.get("method") == "route" else "in a straight line"
+    return (f"{s['ner_label']} at {s['distance_m']:.1f} m ({how}), "
+            + ("within the limit" if s.get("within_limit") else "over the limit")
+            + (", out of ports" if s.get("full") else ""))
+
+
+def _public_key(k: str) -> str:
+    """A status-like key in a CSV cell, in the public edition's words
+    ("no_critical_ner_in_limit" reads "no_critical_rack_in_limit")."""
+    return k.replace("ner", "rack") if is_public() else k
+
+
 def export_csv(out_path: str, coverage: CoverageResult, sheet_cell=None) -> str:
     import csv
     pc = sheet_cell or (lambda p: p)
@@ -1621,7 +1648,8 @@ def export_csv(out_path: str, coverage: CoverageResult, sheet_cell=None) -> str:
                     *(("rack", "rack_internal_id", "rack_chosen_by", "rack_critical") if is_public()
                       else ("ner", "ner_internal_id", "ner_chosen_by", "ner_critical")),
                     "distance_m", "method", "limit_m", "margin_m", "status",
-                    "needs_validation"])
+                    "needs_validation", "criticality_alert",
+                    "critical_rack_suggested" if is_public() else "critical_ner_suggested"])
         for a in coverage.assignments:
             ev = a.evaluation
             w.writerow([
@@ -1634,5 +1662,7 @@ def export_csv(out_path: str, coverage: CoverageResult, sheet_cell=None) -> str:
                 "" if not ev or ev.margin_m is None else round(ev.margin_m, 2),
                 a.status.value,
                 "yes" if (ev and ev.requires_human_validation) else "no",
+                _public_key(getattr(a, "criticality_alert", None) or ""),
+                term(_suggestion_text(a)) if getattr(a, "criticality_alert", None) else "",
             ])
     return out_path

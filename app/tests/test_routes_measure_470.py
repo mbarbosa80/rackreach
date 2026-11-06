@@ -147,7 +147,7 @@ def test_the_assumptions_say_how_much_was_traced():
     a = res.assignments[0]
     assert a.evaluation.method.value == "route"
     assert a.evaluation.effective_distance_m == pytest.approx(100.0)
-    assert any("90.0 m along the traced route + 10.0 m straight lead-in" in x
+    assert any("90.00 m along the traced route + 10.00 m straight lead-in" in x
                for x in a.evaluation.assumptions)
 
 

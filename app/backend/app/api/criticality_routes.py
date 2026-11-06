@@ -126,12 +126,15 @@ def set_enforcement(project_id: int, body: EnforceIn,
             justification=body.justification)
     return {
         "enforced": project.criticality_enforced,
-        "note": ("Re-run the coverage analysis to see the effect. Spaces the "
-                 "matrix marks critical will no longer accept a non-critical "
-                 "room, so some may move from served to out of coverage."
+        "note": ("Re-run the coverage analysis to see the effect. A space marked "
+                 "critical will no longer be served by a non-critical NER: when "
+                 "the only NERs within its limit are non-critical it gets the "
+                 "status 'No critical NER in limit' (pending, not served) until "
+                 "a NER is chosen in Served by."
                  if project.criticality_enforced else
-                 "Criticality is now recorded and reported only; it will not "
-                 "refuse any assignment."),
+                 "Criticality is now reported only: it refuses no assignment, and "
+                 "a space marked critical served by a non-critical NER gets a "
+                 "criticality alert. Re-run the coverage analysis to see it."),
     }
 
 

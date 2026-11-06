@@ -428,11 +428,12 @@ def test_the_workbook_filters_every_sheet_and_computes_utilisation_live(client):
 
     ws = wb["TEAP and coverage"]
     head = [c.value for c in ws[1]]
-    assert head[-2:] == ["Needs validation", "Counted ports"]
+    assert head[-4:] == ["Needs validation", "Counted ports",
+                         "Criticality alert", "Critical NER suggested"]   # 5.6.0
     by_product = {r[7].value: r for r in ws.iter_rows(min_row=2)}
-    assert by_product["Laptop"][9].value == 4 and by_product["Laptop"][-1].value == 4
+    assert by_product["Laptop"][9].value == 4 and by_product["Laptop"][-3].value == 4
     assert by_product[DWISA][9].value == 1, "the TEAP as it arrived"
-    assert by_product[DWISA][-1].value == 1, "counted: the DWISA line is the wireless port"
+    assert by_product[DWISA][-3].value == 1, "counted: the DWISA line is the wireless port"
 
     ws = wb["Wireless points"]
     head = [c.value for c in ws[1]]

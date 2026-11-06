@@ -287,6 +287,8 @@ export const PT: Record<string, string> = {
   "Route not validated": "Rota não validada",
   "Not analysable": "Não analisável",
   "No NER reaches it": "Nenhuma NER alcança",
+  "No critical NER in limit": "Sem NER crítica no limite",
+  "Critical NER in limit": "NER crítica no limite",
   "No room on the drawing — NER chosen by you": "Sem sala no desenho — NER escolhida por você",
 
   // --- marker review and the NER register ----------------------------------
@@ -1005,6 +1007,7 @@ export const PT: Record<string, string> = {
   "out of limit": "fora do limite",
   "insufficient capacity": "capacidade insuficiente",
   "no NER reaches it": "nenhuma NER alcança",
+  "no critical NER in limit": "sem NER crítica no limite",
   "no room on the drawing": "sem sala no desenho",
   "not analysed yet": "ainda não analisado",
   "no room on the drawing — NER chosen by you": "sem sala no desenho — NER escolhida por você",
@@ -1939,4 +1942,20 @@ export const PT: Record<string, string> = {
     "Move só a imagem: NERs e espaços continuam onde estão nas folhas.",
   "Purple: the app could not place it and set it beside the map - use Move to put it in place. Green: placed by you; it keeps that place when the map is built again.":
     "Roxo: o app não conseguiu posicionar e deixou ao lado do mapa - use Mover para colocá-la no lugar. Verde: posicionada por você; mantém o lugar quando o mapa é montado de novo.",
+  "Marked critical and served by a NER that is not critical-rated. The NER and the status stay; choosing a NER in Served by settles it.":
+    "Marcado como crítico e atendido por uma NER que não é crítica. A NER e o status ficam; escolher uma NER em Atendido por resolve.",
+  "critical:":
+    "crítica:",
+  "out of ports":
+    "sem portas livres",
+  "criticality alerts (counted as served)":
+    "alertas de criticidade (contados como atendidos)",
+  "Spaces marked critical served by a NER that is not critical-rated. Counted in Served; click to see them":
+    "Espaços marcados como críticos atendidos por uma NER que não é crítica. Contados em Atendido; clique para vê-los",
+  "suggested: critical":
+    "sugerida: crítica",
+  "Attention — criticality alert":
+    "Atenção — alerta de criticidade",
+  "Attention: spaces marked critical served by a NER that is not critical-rated. They are served and counted as served; the row suggests the nearest critical NER, and choosing a NER in Served by settles it.":
+    "Atenção: espaços marcados como críticos atendidos por uma NER que não é crítica. Estão atendidos e contados como atendidos; a linha sugere a NER crítica mais próxima, e escolher uma NER em Atendido por resolve.",
 };

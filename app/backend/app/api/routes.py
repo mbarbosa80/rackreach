@@ -2174,9 +2174,13 @@ class VerticalIn(BaseModel):
     @model_validator(mode="after")
     def _feet(self) -> "VerticalIn":
         _sane_corner(self.lower_x, self.lower_y, self.upper_x, self.upper_y)
-        if (self.lower_page == self.upper_page and abs(self.lower_x - self.upper_x) < 1e-6
-                and abs(self.lower_y - self.upper_y) < 1e-6):
-            raise ValueError("a vertical link needs two different feet")
+        if self.lower_page == self.upper_page:
+            # R7-F5: one with both feet on one sheet was accepted and acted as
+            # a teleport - a "route" shorter than the straight line.
+            raise ValueError(
+                "a shaft or riser joins two levels, so its two feet must be on two "
+                "different sheets - put the lower foot on the sheet of one level "
+                "and the upper foot on the sheet of the other")
         return self
 
 
@@ -2219,16 +2223,26 @@ def delete_vertical(project_id: int, vertical_id: int,
 
 @router.get("/projects/{project_id}/verticals")
 def list_verticals(project_id: int, db: Session = Depends(get_session)) -> list[dict]:
+    """The shafts and risers of the project. ``ignored`` is a sentence for a
+    link the analysis does not use - both feet on the same sheet, stored
+    before such links were refused (R7-F5) - and ``None`` otherwise. Such a
+    link is listed, not deleted: a person deletes it."""
     _project(db, project_id)
     sh = SH.for_project(db, project_id)
-    return [{"id": v.id, "key": v.key,
-             "lower_page": sh.key(v.lower_drawing_id, v.lower_page),
-             "upper_page": sh.key(v.upper_drawing_id, v.upper_page),
-             "length_m": v.length_m, "kind": v.kind,
-             "label": v.label, "lower_x": v.lower_x, "lower_y": v.lower_y,
-             "upper_x": v.upper_x, "upper_y": v.upper_y}
-            for v in db.execute(select(VerticalLinkRow)
-                                .where(VerticalLinkRow.project_id == project_id)).scalars()]
+    out = []
+    for v in db.execute(select(VerticalLinkRow)
+                        .where(VerticalLinkRow.project_id == project_id)).scalars():
+        lower = sh.key(v.lower_drawing_id, v.lower_page)
+        upper = sh.key(v.upper_drawing_id, v.upper_page)
+        out.append({"id": v.id, "key": v.key, "lower_page": lower, "upper_page": upper,
+                    "length_m": v.length_m, "kind": v.kind,
+                    "label": v.label, "lower_x": v.lower_x, "lower_y": v.lower_y,
+                    "upper_x": v.upper_x, "upper_y": v.upper_y,
+                    "ignored": ("both feet are on the same sheet, so the analysis "
+                                "ignores it - a shaft or riser joins two levels; "
+                                "delete it and register it between the two sheets"
+                                if lower == upper else None)})
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -2239,7 +2253,9 @@ def _analysis_payload(db: Session, p: Project, result, ners, sc) -> dict:
     return {"scenario_id": sc.id, "summary": result.summary(),
             "assignments": [a.to_dict() for a in result.assignments],
             "ner_load": result.ner_load, "exceptions": result.exceptions,
+            "alerts": result.alerts,
             "redundancy": S.redundancy(db, p, result, ners),
+            "notes": result.notes,
             "disclaimer": settings.disclaimer}
 
 
@@ -2265,11 +2281,7 @@ def analyse(project_id: int, scenario: str = "As-Is",
     except S.ValidationError as e:
         raise _err(e)
     sc = S.save_scenario(db, p, scenario, "as_is", result, ners)
-    return {"scenario_id": sc.id, "summary": result.summary(),
-            "assignments": [a.to_dict() for a in result.assignments],
-            "ner_load": result.ner_load, "exceptions": result.exceptions,
-            "redundancy": S.redundancy(db, p, result, ners),
-            "disclaimer": settings.disclaimer}
+    return _analysis_payload(db, p, result, ners, sc)
 
 
 # The optimiser stood here: a CP-SAT model that opened new equipment rooms on a
@@ -2622,6 +2634,10 @@ def list_assignments(project_id: int, include_zero: bool = False,
                 # sending the person off to find the space on another screen.
                 # The serving room itself is left out.
                 "alternatives": _alternatives(a, labels),
+                # The criticality alert (5.6.0): the space stays served.
+                "space_critical": a.get("space_critical"),
+                "criticality_alert": a.get("criticality_alert"),
+                "critical_suggestion": a.get("critical_suggestion"),
                 "notes": [*(ev.get("assumptions") or []),
                           *(ev.get("warnings") or []),
                           *(a.get("reasons") or [])],
@@ -2674,11 +2690,16 @@ def list_assignments(project_id: int, include_zero: bool = False,
             "method": None, "margin_m": None, "page": None,
             "nearest_ner": None, "nearest_distance_m": None, "notes": [],
             "alternatives": [],
+            "space_critical": None, "criticality_alert": None, "critical_suggestion": None,
             "measured_page": None, "occurrence_hint": None,
             "in_scope": S.in_scope(r), "scope_note": S.scope_note(r),
             "occurrences": occurrences.get(r.id, []),
         }
         row.update(served.get(r.space_key, {}))
+        if row["assigned_ner_asset_id"] or row["teap_ner_asset_id"]:
+            # A NER chosen in Served by (or named by the TEAP) settles the
+            # criticality alert, even before the next run.
+            row["criticality_alert"] = None
         row.update(_matched_to(r, m, ds, sheet_numbers))
         row.update(_group_of_row(row))
         out.append(row)
@@ -2703,6 +2724,9 @@ def list_assignments(project_id: int, include_zero: bool = False,
                 1 for d in out for o in d["occurrences"] if o["verdict"] == "proposed"),
             "sheet_numbers": sheet_numbers,
             "pinned": sum(1 for d in out if d["assigned_ner_asset_id"]),
+            # Served spaces with a criticality alert (5.6.0), from the last run;
+            # a space whose NER was chosen since is settled.
+            "criticality_alerts": sum(1 for d in out if d["in_scope"] and d["criticality_alert"]),
             "redirected": sum(1 for d in out if d["redirected"]),
             "teap_named": sum(1 for d in out if d["teap_ner"]),
             "teap_unresolved": sum(1 for d in out

@@ -32,12 +32,33 @@ from enum import Enum
 from typing import Optional
 
 from .geometry import Area, Point
-from .units import Scale, format_length
+from .units import Scale, format_length, metres_to
 
 STRAIGHT_LINE_WARNING = (
     "Preliminary straight-line distance. The result must be validated against the "
     "real cable route."
 )
+
+
+def figure_vs_limit(value: float, limit: float, decimals: int = 2, unit: str = "m") -> str:
+    """A figure the notes compare with a limit, never printed onto it.
+
+    The rule (5.5.1-rc5, tester R4-7): the figure is printed with the
+    sentence's own precision (``decimals``); when that would print the limit
+    itself, or the wrong side of it, it gets as many more decimals as it
+    takes, up to six - 90.004 m over a 90 m limit prints "90.004 m", never
+    "90.00 m"; 89.996 m prints "89.996 m", never "90.00 m". A figure that is
+    still on the limit at six decimals reads "just over 90 m" / "just under
+    90 m". A figure exactly on the limit prints as it is.
+    """
+    if value == limit:
+        return f"{value:.{decimals}f} {unit}"
+    for d in range(decimals, 7):
+        s = f"{value:.{d}f}"
+        f = float(s)
+        if (f > limit) if value > limit else (f < limit):
+            return f"{s} {unit}"
+    return f"just {'over' if value > limit else 'under'} {limit:g} {unit}"
 
 
 class DemandType(str, Enum):
@@ -73,6 +94,14 @@ class Status(str, Enum):
     #: against the room; there is no position to measure from, so no distance
     #: is invented. Added in 2.7.0.
     ASSIGNED_NOT_PLACED = "assigned_not_placed"
+    #: A space the TEAP marks critical whose only NERs within the limit are
+    #: non-critical (5.6.0). It used to come back with no NER and the status
+    #: of the nearest non-critical NER - *served* - and was counted as
+    #: served. It is not served: the row offers the nearest critical NER
+    #: (with its distance, beyond the limit or not) and the nearest
+    #: non-critical NER within the limit, and a choice in *Served by*
+    #: settles it.
+    NO_CRITICAL_NER_IN_LIMIT = "no_critical_ner_in_limit"
 
 
 class Group(str, Enum):
@@ -112,6 +141,9 @@ GROUP_OF: dict[Status, Group] = {
     Status.SCALE_NOT_CONFIRMED: Group.PENDING,
     Status.ROUTE_NOT_VALIDATED: Group.PENDING,
     Status.NOT_ANALYSABLE: Group.PENDING,
+    # Not resolved: a person chooses between the critical NER beyond the
+    # limit and the non-critical one within it, in Served by (5.6.0).
+    Status.NO_CRITICAL_NER_IN_LIMIT: Group.PENDING,
 }
 
 GROUP_LABEL: dict[Group, str] = {
@@ -133,6 +165,22 @@ STATUS_LABEL: dict[Status, str] = {
     Status.SCALE_NOT_CONFIRMED: "scale not confirmed",
     Status.ROUTE_NOT_VALIDATED: "route not validated",
     Status.NOT_ANALYSABLE: "no NER reaches it",
+    Status.NO_CRITICAL_NER_IN_LIMIT: "no critical NER in limit",
+}
+
+#: The criticality alert (5.6.0, owner's decision of 6 Nov 2026: "only
+#: alert"). A space marked critical served by a NER that is not
+#: critical-rated keeps that NER and its status - the serving NER is the
+#: nearest one, as for every space - and the row carries one of these two
+#: alerts instead. Never a status: the space still counts as served.
+ALERT_NO_CRITICAL_NER_IN_LIMIT = "no_critical_ner_in_limit"
+ALERT_CRITICAL_NER_IN_LIMIT = "critical_ner_in_limit"
+#: The alert in words: the workbook's *Criticality alert* column, the CSV and
+#: the screens (the interface translates them; PT "Sem NER crítica no
+#: limite" / "NER crítica no limite").
+ALERT_LABEL: dict[str, str] = {
+    ALERT_NO_CRITICAL_NER_IN_LIMIT: "No critical NER in limit",
+    ALERT_CRITICAL_NER_IN_LIMIT: "Critical NER in limit",
 }
 
 #: The reason a space that never reached the engine is pending.
@@ -224,8 +272,15 @@ class DistanceEvaluation:
     def summary(self, display: str = "m") -> str:
         if self.effective_distance_m is None:
             return f"{self.status.value} (no distance available)"
-        return (f"{self.status.value}: {format_length(self.effective_distance_m, display)} "
-                f"of {format_length(self.limit_m, display)}")
+        # Never printed onto the limit (R4-7): "90.04 m of 90 m", not
+        # "90.0 m of 90 m"; the one-decimal figure otherwise, as before.
+        v, lim = self.effective_distance_m, self.limit_m
+        m = figure_vs_limit(v, lim, 1)
+        ft = figure_vs_limit(metres_to(v, "ft"), metres_to(lim, "ft"), 1, "ft")
+        shown = {"m": m, "ft": ft, "both": f"{m} ({ft})"}.get(display)
+        if shown is None:
+            format_length(v, display)        # the same error for a bad mode
+        return f"{self.status.value}: {shown} of {format_length(lim, display)}"
 
 
 def evaluate_distance(
@@ -239,12 +294,23 @@ def evaluate_distance(
     farthest_vertex_units: Optional[float] = None,
     match_confirmed: bool = True,
     assumptions: Optional[list[str]] = None,
+    farthest_point_m: Optional[float] = None,
+    route_scales_confirmed: Optional[bool] = None,
 ) -> DistanceEvaluation:
     """Evaluate one area/point against its serving NER.
 
     Exactly one of ``distance_units`` (straight line, in PDF units, converted with
     ``scale``) or ``route_length_m`` (already in metres, from a registered cable
     route) drives the verdict.
+
+    ``farthest_point_m`` is the room polygon's farthest vertex already in
+    metres, measured along a route: from that vertex, straight, to where the
+    route joins the space's sheet, then along the route - from another level
+    and on the space's own sheet alike, on every project (5.6.0).
+    ``route_scales_confirmed`` False makes a route verdict wait for the
+    scales it was measured with, as a straight line waits for its sheet's: a
+    traced route on a sheet whose scale is not confirmed, or a route through
+    a shaft or riser with any sheet on it unconfirmed, is never definitive.
     """
     assumptions = list(assumptions or [])
     warnings: list[str] = []
@@ -315,6 +381,16 @@ def evaluate_distance(
             effective = far
             base.effective_distance_m = effective
             base.margin_m = limit - effective
+    elif farthest_point_m is not None:
+        base.farthest_point_distance_m = farthest_point_m
+        if farthest_point_m > effective:
+            assumptions.append(
+                "Compliance evaluated against the farthest vertex of the room polygon, "
+                "not only its centre: from that vertex to where the route joins this "
+                "sheet, then along the route.")
+            effective = farthest_point_m
+            base.effective_distance_m = effective
+            base.margin_m = limit - effective
 
     # --- blocking conditions, in priority order ---------------------------
     # An unconfirmed match no longer blocks the verdict (3.0.0). Marcelo,
@@ -332,6 +408,12 @@ def evaluate_distance(
     if method is DistanceMethod.STRAIGHT_LINE and (scale is None or not scale.confirmed):
         base.status = Status.SCALE_NOT_CONFIRMED
         base.requires_human_validation = True
+        return base
+    if method is DistanceMethod.ROUTE and route_scales_confirmed is False:
+        base.status = Status.SCALE_NOT_CONFIRMED
+        base.requires_human_validation = True
+        warnings.append("The route is measured with a scale that is not confirmed on "
+                        "at least one of the sheets it runs on.")
         return base
 
     # --- verdict ----------------------------------------------------------
@@ -356,8 +438,15 @@ def evaluate_area(
     demand_type: DemandType = DemandType.GENERAL,
     route_length_m: Optional[float] = None,
     match_confirmed: bool = True,
+    route_far_m: Optional[float] = None,
+    route_scales_confirmed: Optional[bool] = None,
 ) -> DistanceEvaluation:
-    """Convenience wrapper: measure an :class:`Area` against a NER position."""
+    """Convenience wrapper: measure an :class:`Area` against a NER position.
+
+    ``route_far_m`` and ``route_scales_confirmed`` go with every route (see
+    :func:`evaluate_distance`; 5.6.0). Given with a route on the same sheet,
+    ``route_far_m`` replaces the straight line from the farthest vertex to
+    the NER: that line is not the cable that serves the corner."""
     assumptions: list[str] = []
     if area.estimated:
         assumptions.append(
@@ -371,6 +460,8 @@ def evaluate_area(
                 distance_units=None, scale=scale, rules=rules, demand_type=demand_type,
                 method=DistanceMethod.ROUTE, route_length_m=route_length_m,
                 match_confirmed=match_confirmed, assumptions=assumptions,
+                farthest_point_m=route_far_m,
+                route_scales_confirmed=route_scales_confirmed,
             )
         ev = DistanceEvaluation(
             status=Status.NOT_ANALYSABLE,
@@ -392,6 +483,12 @@ def evaluate_area(
     d_units = rep.distance_units(ner_point)
     far = area.farthest_vertex_from(ner_point)
     method = DistanceMethod.ROUTE if route_length_m is not None else DistanceMethod.STRAIGHT_LINE
+    far_units = far[1] if far else None
+    if route_length_m is not None and route_far_m is not None:
+        # The farthest vertex along the traced route, as across levels
+        # (5.6.0, every project): a straight line from that vertex to the
+        # NER is not the cable that serves it.
+        far_units = None
     return evaluate_distance(
         distance_units=d_units,
         scale=scale,
@@ -399,9 +496,11 @@ def evaluate_area(
         demand_type=demand_type,
         method=method,
         route_length_m=route_length_m,
-        farthest_vertex_units=far[1] if far else None,
+        farthest_vertex_units=far_units,
         match_confirmed=match_confirmed,
         assumptions=assumptions,
+        farthest_point_m=route_far_m if route_length_m is not None else None,
+        route_scales_confirmed=route_scales_confirmed,
     )
 
 

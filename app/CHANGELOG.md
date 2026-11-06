@@ -52,6 +52,123 @@ package.
 
 ---
 
+## 5.6.0 — 2026-11-06
+
+MINOR: results of real projects can change. Routes through shafts and risers
+are measured right, a rack on the space's own level comes first, every traced
+route is judged on the room's far corner and on a confirmed scale, and a
+space marked critical on a rack that is not critical-rated gets an alert.
+5.5.1 was never released; everything it held is here.
+
+**The criticality alert** (owner's decision of 6 Nov 2026: "only alert")
+- Criticality never changes which rack serves a space: the nearest rack serves,
+  as for every space. The demand list's criticality now reaches the analysis on every
+  project (until now only on a project switched to enforce it, which no screen
+  offered), and a space marked critical that ends up on a rack that is not
+  critical-rated, chosen by nobody, keeps that rack and its status, stays
+  served and counted as served, and gets an alert:
+  **Critical rack in limit** (PT *Rack crítico no limite*) when a critical rack is
+  within the limit and simply was not the nearest - a critical rack within the
+  limit in a straight line counts, even where a traced route reaches the
+  space - or **No critical rack in limit** (PT *Sem rack crítico no limite*).
+- The nearest critical rack, with its distance even beyond the limit, is the
+  suggestion: in the row's notes, marked *suggested: critical* in *Served by*,
+  kept among the alternatives, and said *out of ports* when it is full. A
+  choice in *Served by* settles the alert.
+- Where it shows: a badge on the Demand row and a counter that filters them;
+  an *Attention — criticality alert* tile and rows on the Exceptions step (not
+  in *Pending*); the Drawing viewer's space panel; the workbook's *demand list and
+  coverage* columns *Criticality alert* and *Critical rack suggested* (at the
+  end, so no column moves); the CSV's `criticality_alert` and
+  `critical_rack_suggested`; the API (`criticality_alert`,
+  `critical_suggestion`, `space_critical`, `alerts`); the summary's
+  `criticality_alerts` beside `served`, which still counts these spaces.
+- The note *criticality not stated in the demand list* is written only when the demand list
+  does not state it.
+- A project set to enforce criticality (API only) keeps the status **No
+  critical rack in limit** (`no_critical_ner_in_limit`, *Pending*): a space
+  marked critical whose only racks within the limit are non-critical is not
+  served, with both racks offered. A critical rack within the limit in a
+  straight line is no longer set aside by a traced route that reaches only
+  non-critical racks: it serves. A rack offered that is full says so, and the
+  notes say *marked critical* everywhere. The enforcement endpoint's note
+  says what changes.
+
+**Traced routes, on every project**
+- **The room's far corner is measured along the route.** A room reached by a
+  traced route is judged on its farthest vertex: from that vertex, straight,
+  to where the route joins the sheet, then along the route. It used to be the
+  straight line from that vertex to the rack, which is not the cable that
+  serves it: a 100 m room 85 m of tray from its rack is 135 m at its far
+  corner, not 85 m.
+- **No definitive result on an unconfirmed scale.** A traced route on a sheet
+  whose scale is not confirmed gives *scale not confirmed*, as a straight
+  line there always did; a route through a shaft or riser waits for every
+  sheet it runs on.
+- **Two trays at the same distance.** A space exactly as far from two trays
+  joined the one registered first, so a distance (and a photographers'
+  status) could follow the order the trays were drawn in. Every tray in the
+  tie is tried and the shortest route to the rack is kept; on an exact tie the
+  tray with the smallest label, numbers read as numbers (R2 before R10). The
+  same database gives the same answer whatever the order of registration.
+- **5.00 m traced counts wherever the tray starts.** Nodes keep the
+  coordinates as drawn; the snap grid only decides which ends join. Traced
+  and lead-in figures are printed with two decimals and judged as printed
+  (5.00 m counts, 4.99 m does not). Traced-route distances can move by a few
+  centimetres.
+
+**Shafts and risers**
+- **Same floor first.** A rack on another level, reached by a shaft or riser
+  route, is a candidate only when no rack on the space's own level serves it
+  within the applicable limit (90 m, 70 m for photographers), with the free
+  ports it needs and allowed by criticality. A rack on another level set aside
+  is named in the notes; a rack chosen in *Served by* always wins, and the
+  floor rack that would serve is named and kept among the alternatives.
+- **The shortest connection that counts.** Each end of a route joins every
+  shaft or riser foot within reach, two links on the same feet keep the
+  shorter, and the distance is the shortest connection that counts; a shorter
+  one that does not count is named, never obeyed. Two lead-ins meeting at a
+  bare shaft foot are no connection.
+- **A rack on the space's own floor is measured on that floor**, never through
+  another floor by two risers and a tray, unless that way round is shorter.
+- **Each end on its own sheet's scale.** A rack on a 1:20 sheet over a 1:200
+  one had its lead-in measured ten times too long.
+- **When every rack within the limit is out of ports**, the nearest one on the
+  space's own level is assigned anyway, one on another level only when none
+  on the level is within the limit.
+- **The notes say what happened.** A shaft route that does not count is named
+  with its traced and lead-in figures. The racks on the level that did not
+  serve are named with the reason (over the limit, scale, criticality,
+  ports). When nothing serves, the row reports the nearest of every rack
+  compared, on the level or another.
+- **A vertical link joins two sheets, never one**: both feet on one page is
+  refused; such a link already in a database is ignored by the analysis and
+  noted, not deleted.
+- Equal connections and equal shafts are chosen by link label, then by
+  position, whatever order they were registered in. Large shaft networks
+  build about ten times faster.
+
+**Speed**
+- The place where a space or a rack joins the traced routes is found once per
+  point, not once per space and rack: a project of 600 spaces and 2,400 tray
+  segments analyses in 4 s instead of 92 s (5.5.0: 56 s), with identical
+  results.
+
+**Notes and figures**
+- "Every rack within the distance limit is out of ports" is written only when
+  it is true, on every project: a rack within the limit with free ports that a
+  traced route left out of the comparison, or one that is not critical-rated
+  for a critical space, is named, and the sentence says what "every" covers.
+- A rack already over capacity prints **"0 free (over by 9)"**, never "-9 free".
+- No figure in a note or an exception is printed onto a limit: 90.004 m over a
+  90 m limit reads "90.004 m", never "90.00 m".
+- A space on a sheet with no scale says so and names the racks on it ("page 2
+  has no scale, so rack 20 on this level could not be measured") instead of
+  "no rack on this level".
+- **Public edition.** The demand list CSV names the suggested critical rack
+  `critical_rack_suggested`, and its alert and suggestion cells use the
+  public words too.
+
 ## 5.5.0 — 2026-11-05
 
 MINOR: the 900-series master plans (a whole level on one 340 × 220 in sheet)

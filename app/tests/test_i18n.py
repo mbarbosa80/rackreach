@@ -314,6 +314,10 @@ _INTERFACE_LOWER_CASE = {
     "within the limit", "near the limit", "out of limit", "insufficient capacity",
     "no NER reaches it", "no room on the drawing", "not analysed yet",
     "no room on the drawing — NER chosen by you", "all spaces",
+    # 5.6.0 — the new status, mirrored from ``distance.STATUS_LABEL``
+    "no critical NER in limit",
+    # 5.6.0-rc2 — the criticality alert on Demand and the Exceptions step
+    "criticality alerts (counted as served)", "out of ports", "suggested: critical",
     "no room on the drawing — counted on this NER, distance not measured",
     "no number for", "add it to the convention", "no suggestion yet",
     "reference placed on this sheet — drawn only, with its reach circles; nothing is counted. Click again to place another, choose select to stop.",

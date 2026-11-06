@@ -5,7 +5,7 @@ import workerUrl from "pdfjs-dist/build/pdf.worker.min.mjs?url";
 import type { Ctx } from "../App";
 import { api } from "../lib/api";
 import {
-  AREA_COLOUR, AREA_FILL_OPACITY, DEMAND_KINDS, DISCLAIMER, KIND_COLOUR, KIND_LABEL,
+  ALERT_COLOUR, ALERT_LABEL, STATUS_LABEL, AREA_COLOUR, AREA_FILL_OPACITY, DEMAND_KINDS, DISCLAIMER, KIND_COLOUR, KIND_LABEL,
   KIND_LABEL_COLOUR, LABEL_TAG_FILL, LABEL_TAG_OPACITY, LEGEND_ROWS, MARKER_RING,
   NER_REFERENCE_KINDS, REFERENCE_KINDS, STATUS_COLOUR, canServe, drawsReach, fmtLen,
 } from "../lib/notation";
@@ -1894,10 +1894,10 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                   {t("A Wi-Fi point takes no port and is not an access point count: the DWISA line of its TEAP space is the port. It is measured to the NER of its space, or the nearest within the limit.")}<br />
                   {a ? (
                     <>
-                      {t("Serving NER")}: <strong>{a.ner_label || t("none within the limit")}</strong>
+                      {t("Serving NER")}: <strong>{a.ner_label || t("none")}</strong>
                       {a.evaluation?.effective_distance_m != null &&
                         ` · ${fmtLen(a.evaluation.effective_distance_m, ctx.units)} / ${a.evaluation.limit_m} m`}
-                      {" "}<span className="pill" style={{ color: STATUS_COLOUR[a.status] }}>{t(a.status)}</span>
+                      {" "}<span className="pill" style={{ color: STATUS_COLOUR[a.status] }}>{t(STATUS_LABEL[a.status] || a.status)}</span>
                     </>
                   ) : t("Not analysed yet — press Run analysis to measure it.")}
                 </p>
@@ -2067,8 +2067,19 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                   {t("Ports")}: {selected.assignment.ports_required}
                 </p>
                 <span className="pill" style={{ color: STATUS_COLOUR[selected.assignment.status] }}>
-                  {selected.assignment.status}
+                  {t(STATUS_LABEL[selected.assignment.status] || selected.assignment.status)}
                 </span>
+                {selected.assignment.criticality_alert && (
+                  <p className="small" style={{ color: ALERT_COLOUR, marginTop: 6 }}>
+                    <strong>⚠ {t(ALERT_LABEL[selected.assignment.criticality_alert] || selected.assignment.criticality_alert)}</strong>
+                    {selected.assignment.critical_suggestion && (
+                      <> — {t("critical:")} {selected.assignment.critical_suggestion.ner_label} {t("at")}{" "}
+                        {fmtLen(selected.assignment.critical_suggestion.distance_m, ctx.units)}
+                        {selected.assignment.critical_suggestion.full ? ` · ${t("out of ports")}` : ""}</>
+                    )}
+                    <br />{t("Marked critical and served by a NER that is not critical-rated. The NER and the status stay; choosing a NER in Served by settles it.")}
+                  </p>
+                )}
                 <h3>{t("Assumptions")}</h3>
                 <ul className="small muted">
                   {[...(selected.assignment.evaluation?.assumptions || []),

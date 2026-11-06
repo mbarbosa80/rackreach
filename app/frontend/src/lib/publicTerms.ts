@@ -94,7 +94,7 @@ const PT: Rules = {
     [/\bàs (racks)\b/g, "aos $1"],
     [/\b([Nn])enhuma (rack)\b/g, "$1enhum $2"],
     [/\b([Cc])ada (rack) (crítica)\b/g, "$1ada $2 crítico"],
-    [/\b(rack) (crítica)\b/g, "$1 crítico"],
+    [/\b([Rr]ack) (crítica)\b/g, "$1 crítico"],
     [/\b(racks) (críticas)\b/g, "$1 críticos"],
   ],
 };

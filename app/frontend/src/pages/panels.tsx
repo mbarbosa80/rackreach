@@ -4,8 +4,8 @@ import { JobBar } from "../components/JobBar";
 import { WideScroll } from "../components/WideScroll";
 import { api } from "../lib/api";
 import {
-  GROUP_COLOUR, GROUP_LABEL, GROUP_ORDER, KIND_COLOUR, KIND_LABEL, STATUS_COLOUR, STATUS_LABEL,
-  canServe, fmtLen, groupOf,
+  ALERT_COLOUR, ALERT_LABEL, GROUP_COLOUR, GROUP_LABEL, GROUP_ORDER, KIND_COLOUR, KIND_LABEL,
+  STATUS_COLOUR, STATUS_LABEL, canServe, fmtLen, groupOf,
 } from "../lib/notation";
 import { useJob } from "../lib/useJob";
 import { t } from "../lib/i18n";
@@ -77,6 +77,30 @@ function sortedSpaces(spaces: any[], p?: any): { key: number; label: string; s: 
   return spaces
     .map((s) => ({ key: s.id, label: spaceLabel(s, p), s }))
     .sort((a, b) => SPACE_COLLATOR.compare(a.label, b.label));
+}
+
+/**
+ * The criticality alert of a row (5.6.0): a badge under the status, never
+ * the status itself — the space is served. With the suggestion: the nearest
+ * critical NER, its distance, and whether it is out of ports.
+ */
+export function AlertBadge({ r, units }: { r: any; units: string }) {
+  if (!r?.criticality_alert) return null;
+  const s = r.critical_suggestion;
+  return (
+    <div className="small" style={{ marginTop: 3, color: ALERT_COLOUR }}
+         title={t("Marked critical and served by a NER that is not critical-rated. The NER and the status stay; choosing a NER in Served by settles it.")}>
+      <span className="pill" style={{ color: ALERT_COLOUR, borderColor: ALERT_COLOUR }}>
+        ⚠ {t(ALERT_LABEL[r.criticality_alert] || r.criticality_alert)}
+      </span>
+      {s && (
+        <div>
+          {t("critical:")} {s.ner_label} {t("at")} {fmtLen(s.distance_m, units)}
+          {s.full ? ` · ${t("out of ports")}` : ""}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function StatusPill({ status }: { status: string }) {
@@ -1600,6 +1624,8 @@ const EXTRA_FILTERS: Record<string, (s: any, i: any) => boolean> = {
   // 3.0.0: a room the matcher found and nobody confirmed is served by the
   // nearest NER like any other; this counter is how the person reviews them.
   "x:unconfirmed": (_s, i) => i.match_confirmed === false && !!i.serving_ner,
+  // 5.6.0: a space marked critical served by a non-critical NER.
+  "x:alert": (_s, i) => !!i.criticality_alert,
 };
 
 /**
@@ -1827,9 +1853,18 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
     if (i.status === "match_not_confirmed") return `${t("match not confirmed")}${nearest}`;
     if (i.status === "scale_not_confirmed") return `${t("scale not confirmed")}${nearest}`;
     if (i.status === "route_not_validated") return `${t("route not validated")}${nearest}`;
+    // 5.6.0: a critical space with only non-critical NERs within the limit —
+    // the two options are on the row (Other NERs measured / the notes).
+    if (i.status === "no_critical_ner_in_limit") return `${t("no critical NER in limit")}${nearest}`;
     if (i.nearest_ner)
       return `${t("— none within")} ${i.limit_m ?? p.settings.general_limit_m} m${nearest}`;
     return t("— nothing reaches it —");
+  };
+  /** The nearest critical NER an alerted row suggests, said on its option. */
+  const suggested = (i: any, id: number) => {
+    const s = i.criticality_alert ? i.critical_suggestion : null;
+    if (!s || s.ner_key !== `A${id}`) return "";
+    return ` — ${t("suggested: critical")}, ${fmtLen(s.distance_m, ctx.units)}${s.full ? ` · ${t("out of ports")}` : ""}`;
   };
   const tile = (g: string) => (
     <button type="button" key={g} className={`stat tile ${filter === g ? "on" : ""}`}
@@ -1894,6 +1929,9 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
           {(byStatus.near_limit || 0) > 0 && counter("status:near_limit", byStatus.near_limit,
             "near the limit (counted as served)", "var(--warn)",
             t("Served, within the limit but close to it. Counted in Served; click to see them"))}
+          {((pins as any).criticality_alerts || 0) > 0 && counter("x:alert",
+            (pins as any).criticality_alerts, "criticality alerts (counted as served)", ALERT_COLOUR,
+            t("Spaces marked critical served by a NER that is not critical-rated. Counted in Served; click to see them"))}
           {counter("x:photographer", spaces.filter((s) => s.demand_type === "photographer").length, "photographer areas")}
           {counter("x:chosen", (pins as any).pinned || 0, "rooms chosen by you")}
           {wirelessPoints.length > 0 && (
@@ -2072,7 +2110,7 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
                                 e.target.value ? Number(e.target.value) : null)}>
                         <option value="">{placeholder(i, !!target)}</option>
                         {roomOptions.map((o: any) => (
-                          <option key={o.id} value={o.id}>{o.label}</option>
+                          <option key={o.id} value={o.id}>{o.label}{suggested(i, o.id)}</option>
                         ))}
                       </select>
                       {i.assigned_ner_asset_id && (
@@ -2141,6 +2179,7 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
                     <td style={{ minWidth: 150 }}>
                       {i.group ? <GroupPill group={i.group} reason={i.group_reason} />
                         : <span className="muted small">—</span>}
+                      <AlertBadge r={i} units={ctx.units} />
                     </td>
                     {/* The notes, readable. Closed, two lines and the count;
                         open, one line per note, wrapped, nothing clipped. */}
@@ -2270,7 +2309,7 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
  * click to use one), and a link to the row on Demand per space and to the
  * drawing.
  */
-type ExKey = "all" | "teap" | "pending" | "problem" | "near" | "not_measured";
+type ExKey = "all" | "teap" | "pending" | "problem" | "near" | "not_measured" | "attention";
 
 const EX_TILES: [ExKey, string, string][] = [
   ["all", "all that need you", "var(--accent, #4c8dff)"],
@@ -2279,6 +2318,8 @@ const EX_TILES: [ExKey, string, string][] = [
   ["problem", "Out of limit / over capacity", GROUP_COLOUR.problem],
   ["near", "near the limit", "var(--warn)"],
   ["not_measured", "Served — not measured", GROUP_COLOUR.not_measured],
+  // 5.6.0: served, with a criticality alert — to look at, not pending.
+  ["attention", "Attention — criticality alert", ALERT_COLOUR],
 ];
 
 /** Which pile of the Exceptions step a Demand row is in, or null when it is
@@ -2289,9 +2330,10 @@ function exKind(r: any): ExKey | null {
   if (r.group === "problem") return "problem";
   if (r.status === "near_limit") return "near";
   if (r.group === "not_measured") return "not_measured";
+  if (r.criticality_alert) return "attention";
   return null;
 }
-const EX_ORDER: Record<string, number> = { teap: -1, pending: 0, problem: 1, near: 2, not_measured: 3 };
+const EX_ORDER: Record<string, number> = { teap: -1, pending: 0, problem: 1, near: 2, not_measured: 3, attention: 4 };
 
 export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
   const sx = useSort<any>();
@@ -2330,10 +2372,14 @@ export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
   }, [pins]);
   const counts = useMemo(() => {
     const c: Record<string, number> = { all: all.length };
-    for (const r of all) c[r.ex] = (c[r.ex] || 0) + 1;
+    for (const r of all) if (r.ex !== "attention") c[r.ex] = (c[r.ex] || 0) + 1;
+    // Every alerted row, whichever pile it is in (a near-limit one too).
+    c.attention = all.filter((r) => r.criticality_alert).length;
     return c;
   }, [all]);
-  const rows = tile === "all" ? all : all.filter((r) => r.ex === tile);
+  const rows = tile === "all" ? all
+    : tile === "attention" ? all.filter((r) => r.criticality_alert)
+    : all.filter((r) => r.ex === tile);
   if (!p) return null;
   const analysed = (pins as any).analysed_at;
 
@@ -2399,7 +2445,8 @@ export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
           ))}
         </div>
         <p className="muted small" style={{ marginBottom: 0 }}>
-          {t("The same rows as Demand per space, read from the last run and the choices made since. Every TEAP space that still needs you is here: with no room and no NER, out of the limit or over capacity, near the limit, or served from another level without a measured distance. Change the NER on the row, or open the row on Demand per space or on the drawing.")}
+          {t("The same rows as Demand per space, read from the last run and the choices made since. Every TEAP space that still needs you is here: with no room and no NER, out of the limit or over capacity, near the limit, or served from another level without a measured distance. Change the NER on the row, or open the row on Demand per space or on the drawing.")}{" "}
+          {t("Attention: spaces marked critical served by a NER that is not critical-rated. They are served and counted as served; the row suggests the nearest critical NER, and choosing a NER in Served by settles it.")}
         </p>
       </div>
 
@@ -2427,6 +2474,7 @@ export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
                       {r.row_kind === "space"
                         ? <GroupPill group={r.group} reason={r.group_reason} />
                         : <StatusPill status={r.status} />}
+                      <AlertBadge r={r} units={ctx.units} />
                       {(r.teap_errors || []).map((w: string, i: number) => (
                         <div key={i} className="small" style={{ color: "var(--bad)" }}>{w}</div>))}
                     </td>
@@ -2439,7 +2487,11 @@ export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
                             : r.teap_ner_name ? `TEAP: ${r.teap_ner_name}`
                             : t("— no NER yet: choose one —")}
                         </option>
-                        {roomOptions.map((o: any) => <option key={o.id} value={o.id}>{o.label}</option>)}
+                        {roomOptions.map((o: any) => (
+                          <option key={o.id} value={o.id}>
+                            {o.label}{r.criticality_alert && r.critical_suggestion?.ner_key === `A${o.id}`
+                              ? ` — ${t("suggested: critical")}` : ""}
+                          </option>))}
                       </select>
                       {r.assigned_ner_asset_id && (
                         <div className="small" style={{ color: "var(--accent, #4c8dff)" }}>{t("chosen by you")}: {r.assigned_ner}</div>

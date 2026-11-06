@@ -155,6 +155,9 @@ export const STATUS_COLOUR: Record<string, string> = {
   cross_level_not_measured: "#8c8c8c",
   // No room on the drawing, NER chosen by hand: counted, not measured.
   assigned_not_placed: "#8c8c8c",
+  // A critical space whose only NERs within the limit are non-critical
+  // (5.6.0): a decision waits in Served by — neither served nor out of limit.
+  no_critical_ner_in_limit: "#b82e78",
 };
 
 /**
@@ -176,6 +179,7 @@ export const GROUP_OF: Record<string, string> = {
   scale_not_confirmed: "pending",
   route_not_validated: "pending",
   not_analysable: "pending",
+  no_critical_ner_in_limit: "pending",
 };
 
 export const GROUP_LABEL: Record<string, string> = {
@@ -210,7 +214,20 @@ export const STATUS_LABEL: Record<string, string> = {
   not_analysable: "No NER reaches it",
   cross_level_not_measured: "Other level — not measured",
   assigned_not_placed: "No room on the drawing — NER chosen by you",
+  no_critical_ner_in_limit: "No critical NER in limit",
 };
+
+/**
+ * The criticality alert (5.6.0, owner's decision of 6 Nov 2026: "only
+ * alert") — the same keys and words as ``distance.ALERT_LABEL``. A space
+ * marked critical served by a NER that is not critical-rated keeps that NER
+ * and its status; the row carries the alert, never a status of its own.
+ */
+export const ALERT_LABEL: Record<string, string> = {
+  no_critical_ner_in_limit: "No critical NER in limit",
+  critical_ner_in_limit: "Critical NER in limit",
+};
+export const ALERT_COLOUR = "#b82e78";
 
 /**
  * Seven rows, and nothing else.

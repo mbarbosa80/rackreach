@@ -2264,10 +2264,14 @@ def register_ners(db: Session, project: Project, *, include_suggested: bool = Fa
 
 def build_route_network(db: Session, project: Project,
                         scales: dict[int, Scale]) -> Optional[RouteNetwork]:
+    # In a stated order (5.5.1-rc4, tester R3-6): the network is the same
+    # whatever order the database hands the rows back in.
     segs = db.execute(select(RouteSegmentRow)
-                      .where(RouteSegmentRow.project_id == project.id)).scalars().all()
+                      .where(RouteSegmentRow.project_id == project.id)
+                      .order_by(RouteSegmentRow.id)).scalars().all()
     verts = db.execute(select(VerticalLinkRow)
-                       .where(VerticalLinkRow.project_id == project.id)).scalars().all()
+                       .where(VerticalLinkRow.project_id == project.id)
+                       .order_by(VerticalLinkRow.id)).scalars().all()
     if not segs and not verts:
         return None
     sh = SH.for_project(db, project.id)
@@ -2381,11 +2385,12 @@ def collect_areas(db: Session, project: Project
                 proposed.append(occ)
         if proposed:
             area.meta["proposed_occurrences"] = proposed
-        # Criticality is carried as *data* and reported on; it only constrains
-        # an assignment when the project explicitly says so. See
-        # ``Project.criticality_enforced`` for why the default is off.
+        # Criticality is carried as *data* and reported on: since 5.6.0 the
+        # engine gets it on every project and, unless the project enforces
+        # it (``Project.criticality_enforced``, off by default), uses it only
+        # for the criticality alert - never to choose the serving NER.
         crit: Optional[bool] = None
-        if project.criticality_enforced and teap.criticality_confirmed and teap.criticality:
+        if teap.criticality_confirmed and teap.criticality:
             crit = str(teap.criticality).strip().lower() in ("critical", "yes", "true",
                                                              "high", "1", "crítico")
         out.append((area, ports,
@@ -3365,7 +3370,8 @@ def analyse(db: Session, project: Project, *, scenario_name: str = "As-Is",
         result = compute_coverage(areas=areas, ners=ners, scale_for_page=scales,
                                   rules=distance_rules(project), network=net,
                                   pinned=pins, pin_sources=pin_sources,
-                                  cross_level=cross_level_declarations(db, project))
+                                  cross_level=cross_level_declarations(db, project),
+                                  enforce_criticality=bool(project.criticality_enforced))
     say(1.0, f"{result.summary()['served']:,} of {len(areas):,} within limits")
     return result, ners
 
@@ -3491,12 +3497,16 @@ def scenario_view(db: Session, project: Project, name: str
             ner_page=a.get("ner_page"), cross_level=bool(a.get("cross_level")),
             measured_page=a.get("measured_page"),
             occurrence_hint=a.get("occurrence_hint"),
-            kind=str(a.get("kind") or "space")))
+            kind=str(a.get("kind") or "space"),
+            space_critical=a.get("space_critical"),
+            criticality_alert=a.get("criticality_alert"),
+            critical_suggestion=a.get("critical_suggestion")))
 
     result = CoverageResult(assignments=assignments,
                             ner_load=_reload_ports(payload.get("ner_load") or {}, assignments),
                             exceptions=list(payload.get("exceptions") or []),
-                            uncovered=list(payload.get("uncovered") or []))
+                            uncovered=list(payload.get("uncovered") or []),
+                            alerts=list(payload.get("alerts") or []))
     if dropped:
         result.exceptions = list(result.exceptions) + [{
             "space_key": k, "space_name": "", "page": 0,
@@ -3616,6 +3626,7 @@ def save_scenario(db: Session, project: Project, name: str, kind: str,
         "ner_load": result.ner_load,
         "exceptions": result.exceptions,
         "uncovered": result.uncovered,
+        "alerts": result.alerts,
         "ners": [{"key": n.key, "label": n.label, "kind": n.kind, "page": n.point.page,
                   "x": n.point.x, "y": n.point.y, "critical": n.critical,
                   "proposed": n.proposed, "total_ports": n.total_ports,
