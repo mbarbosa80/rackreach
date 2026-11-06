@@ -14,7 +14,7 @@ import threading
 from pathlib import Path
 from typing import Any, Literal, Optional
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, field_validator, model_validator
 from sqlalchemy import delete, func, select
@@ -500,10 +500,16 @@ def delete_drawing(project_id: int, drawing_id: int, user: User = Depends(curren
     if busy is not None:
         raise HTTPException(409, "a task is still running on this project — wait for it to "
                                  "finish, then remove the book")
+    from .. import page_tiles as PT
+    did = d.id
     try:
         return S.delete_drawing(db, p, d, actor=user.username)
     except S.ValidationError as e:
         raise _err(e)
+    finally:
+        # Tiles of the book served again if the removal stopped half-way
+        # (5.5.0); after a removal there is no row to serve them from.
+        PT.drop_done(drawing_id=did)
 
 
 @router.get("/projects/{project_id}/drawings/{drawing_id}/impact")
@@ -589,6 +595,70 @@ def drawing_file(project_id: int, drawing_id: int,
     if not path.exists():
         raise HTTPException(404, "the stored file is missing")
     return FileResponse(path, media_type="application/pdf", filename=d.filename)
+
+
+def _page_tile_facts(project_id: int, drawing_id: int, page_no: int) -> tuple:
+    from ..db import SessionLocal
+    with SessionLocal() as db:
+        d = db.get(Drawing, drawing_id)
+        if d is None or d.project_id != project_id:
+            raise HTTPException(404, "drawing not found")
+        pg = db.execute(select(Page).where(Page.drawing_id == d.id,
+                                           Page.number == page_no)).scalars().first()
+        if pg is None:
+            raise HTTPException(404, "page not found")
+        return (d.sha256 or "", d.stored_path or "", float(pg.width), float(pg.height))
+
+
+def _page_tile(project_id: int, drawing_id: int, page_no: int, z: int, x: int, y: int) -> bytes:
+    from .. import page_tiles as PT
+    sha, stored, w, h = _page_tile_facts(project_id, drawing_id, page_no)
+    try:
+        return PT.tile(project_id, drawing_id, sha, stored, page_no, w, h, z, x, y)
+    except PT.TileError as exc:
+        raise _tile_http(exc) from exc
+
+
+def _page_tile_on_disk(project_id: int, drawing_id: int, page_no: int, z: int, x: int,
+                       y: int) -> Optional[bytes]:
+    """The tile if it was drawn before (rc5) — read without waiting for the
+    tiles being drawn."""
+    from .. import page_tiles as PT
+    sha, _stored, w, h = _page_tile_facts(project_id, drawing_id, page_no)
+    try:
+        return PT.cached_tile(project_id, drawing_id, sha, page_no, w, h, z, x, y)
+    except PT.TileError as exc:
+        raise _tile_http(exc) from exc
+
+
+def _tile_http(exc: Exception) -> HTTPException:
+    """A tile too slow to draw just now is 503 with the seconds to wait
+    (rc6) — the viewer says so and asks again then; anything else is 404."""
+    from .. import page_tiles as PT
+    if isinstance(exc, PT.TileSlow):
+        return HTTPException(503, str(exc), headers={"Retry-After": str(exc.retry_after)})
+    return HTTPException(404, str(exc))
+
+
+#: The tiles (5.5.0) are served from a router of their own, guarded by
+#: ``auth_routes.tile_guard``, which holds no database connection while the
+#: tile waits for the renderer (see there).
+tiles_router = APIRouter()
+
+
+@tiles_router.get("/projects/{project_id}/drawings/{drawing_id}/pages/{page_no}/tiles/{z}/{x}/{y}.png")
+async def page_tile(request: Request, project_id: int, drawing_id: int, page_no: int, z: int,
+                    x: int, y: int) -> Response:
+    """One tile of a sheet too large for the viewer's single bitmap (5.5.0)
+    — see ``app/page_tiles.py``. Off the event loop: the first tile of a
+    sheet interprets the whole page."""
+    from .tile_runner import run_tile
+    png = await run_tile(request, _page_tile, project_id, drawing_id, page_no, z, x, y,
+                         cached=_page_tile_on_disk)
+    if isinstance(png, Response):
+        return png
+    return Response(png, media_type="image/png",
+                    headers={"Cache-Control": "private, max-age=86400"})
 
 
 class ScaleIn(BaseModel):
@@ -1858,11 +1928,17 @@ def build_report(project_id: int, fmt: str, scenario: str = "As-Is",
 def _marked_pdf(src: str, out: str, *, progress=None, **kw) -> list:
     """Mark up one book in a child interpreter (5.3.0) and return the
     positions found off their sheet. Falls back to this process when the
-    arguments cannot be sent across - slower is better than no PDF."""
+    arguments cannot be sent across, or the child could not import the
+    application (rc5) - slower is better than no PDF. Any other failure in
+    the child is not tried again here: a book that crashed the child would
+    crash the server."""
     try:
         res = isolate.run("app.domain.reports.export_marked_pdf_job", src, out,
                           progress=progress, **kw)
-    except (pickle.PicklingError, TypeError, AttributeError) as exc:
+    except (pickle.PicklingError, TypeError, AttributeError, isolate.IsolatedError) as exc:
+        if isinstance(exc, isolate.IsolatedError) and exc.kind not in (
+                "ModuleNotFoundError", "ImportError"):
+            raise
         logging.getLogger("ner.reports").warning(
             "marked PDF in-process (%s: %s)", type(exc).__name__, exc)
         from ..domain.reports import export_marked_pdf_job

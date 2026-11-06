@@ -1,4 +1,4 @@
-# Known limitations — RackReach Map 1.1.0
+# Known limitations — RackReach Map 1.2.0
 
 * Distances and reach circles are straight lines on one sheet. No cable route,
   no level-to-level link.

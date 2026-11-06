@@ -15,8 +15,9 @@ How
 ---
 :func:`run` starts ``sys.executable -c <bootstrap>``, hands it the parent's
 ``sys.path`` (the embedded runtime ignores PYTHONPATH — its ``._pth`` file is
-the whole search path, so the path travels in the request), the dotted name
-of the function, its arguments, and reads back length-prefixed pickles:
+the whole search path, so the path travels to the child) in a frame of its
+own, then the dotted name of the function and its arguments, and reads back
+length-prefixed pickles:
 ``('progress', fraction, stage)`` as the function reports it, then
 ``('done', result)`` or ``('error', type, message, traceback)``. The
 parent's ``progress`` callback is called for each progress frame, exactly as
@@ -53,18 +54,26 @@ Progress = Optional[Callable[[float, str], None]]
 #: Printed in the server log when the fallback is taken, once per process.
 _fallback_announced = False
 
-# The child. Kept free of anything but the standard library until the
-# request arrives, because the request is what carries the import path.
+# The child. Kept free of anything but the standard library until the import
+# path arrives. The path comes in a frame of its own, before the request
+# (5.5.0-rc5): the request's arguments may be objects of ``app`` (the marked
+# PDF's are), and unpickling them needs ``app`` importable. With the path
+# inside the request, a server started from the installation's root without
+# PYTHONPATH (``mac/start.command``: ``cd ROOT; python3 -s tools/serve.py``)
+# had a child that could not unpickle its own request — "No module named
+# 'app'" — and Reports -> marked PDF failed (independent tester, rc4).
 _BOOTSTRAP = r"""
 import importlib, pickle, struct, sys, traceback
 _in, _out = sys.stdin.buffer, sys.stdout.buffer
 def _send(obj):
     data = pickle.dumps(obj, protocol=pickle.HIGHEST_PROTOCOL)
     _out.write(struct.pack('>I', len(data))); _out.write(data); _out.flush()
-try:
+def _frame():
     n = struct.unpack('>I', _in.read(4))[0]
-    req = pickle.loads(_in.read(n))
-    sys.path[:0] = [p for p in req['sys_path'] if p not in sys.path]
+    return pickle.loads(_in.read(n))
+try:
+    sys.path[:0] = [p for p in _frame() if p not in sys.path]
+    req = _frame()
     sys.stdout = sys.stderr          # a stray print must not corrupt a frame
     mod, _, name = req['target'].rpartition('.')
     fn = getattr(importlib.import_module(mod), name)
@@ -129,8 +138,11 @@ def run(target: str, *args: Any, progress: Progress = None, **kwargs: Any) -> An
     if os.environ.get("NER_INPROCESS") == "1":
         return _in_process(target, args, kwargs, progress)
 
+    # Absolute: the child may start in another folder than this process.
+    paths = pickle.dumps([os.path.abspath(p) if p else os.getcwd() for p in sys.path],
+                         protocol=pickle.HIGHEST_PROTOCOL)
     request = pickle.dumps({
-        "sys_path": list(sys.path), "target": target, "args": args, "kwargs": kwargs,
+        "target": target, "args": args, "kwargs": kwargs,
         "progress": progress is not None,
     }, protocol=pickle.HIGHEST_PROTOCOL)
 
@@ -156,8 +168,9 @@ def run(target: str, *args: Any, progress: Progress = None, **kwargs: Any) -> An
     err_thread.start()
     try:
         assert proc.stdin is not None and proc.stdout is not None
-        proc.stdin.write(struct.pack(">I", len(request)))
-        proc.stdin.write(request)
+        for frame in (paths, request):
+            proc.stdin.write(struct.pack(">I", len(frame)))
+            proc.stdin.write(frame)
         proc.stdin.flush()
         proc.stdin.close()
         while True:

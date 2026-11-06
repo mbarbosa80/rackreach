@@ -147,6 +147,9 @@ export const api = {
   },
   drawingFileUrl: (id: number, drawingId: number) =>
     `${BASE}/projects/${id}/drawings/${drawingId}/file`,
+  // A tile of a sheet too large for one bitmap (5.5.0): page in its book.
+  pageTileUrl: (id: number, drawingId: number, page: number, z: number, x: number, y: number) =>
+    `${BASE}/projects/${id}/drawings/${drawingId}/pages/${page}/tiles/${z}/${x}/${y}.png`,
   pageImageUrl: (id: number, page: number, dpi = 110) =>
     `${BASE}/projects/${id}/pages/${page}/image?dpi=${dpi}`,
 

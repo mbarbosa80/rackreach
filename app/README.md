@@ -1,6 +1,6 @@
 # RackReach
 
-**Version 4.5.0** — the number lives in `VERSION`; see `CHANGELOG.md` for the
+**Version 5.5.0** — the number lives in `VERSION`; see `CHANGELOG.md` for the
 numbering rule and the release steps.
 
 A working web application for studying **equipment room / rack placement and network coverage**

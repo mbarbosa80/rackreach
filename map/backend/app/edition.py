@@ -51,6 +51,14 @@ PHRASES = [
     ("TEAP and coverage", "Demand and coverage"),
     ("TEAP spaces with no ports", "Demand spaces with no ports"),
     ("TEAP files", "Demand files"),
+    # 5.5.0: codes of the project the tool was built for, never shown in public.
+    ("as the AAM or the VDB writes it (TEC.010-001)", "as the design book writes it"),
+    ("(AAM / VDB)", "(design book)"),
+    ("the coded rooms — TEC.010 (critical) / TEC.020 (non-critical), or TEC.003.01 / .02 on older books —",
+     "the rooms the book codes as critical or non-critical racks —"),
+    ("the TEC.010 / TEC.020 (or TEC.003.01 / .02) rooms", "the rooms the book codes as racks"),
+    ("a DWISA line", "a wireless line"),
+    ("TEC.003 / TEC.010 / TEC.020 rooms", "rooms the book codes as racks"),
 ]
 WORDS = {
     "NERc": "critical rack", "NERs": "racks", "NER": "rack",
@@ -60,6 +68,7 @@ WORDS = {
     "DIVA": "AV network",
     "VTMs": "technology managers", "VTCMs": "technology managers",
     "VTM": "technology manager", "VTCM": "technology manager",
+    "DWISA": "wireless", "AAM": "space programme",
 }
 _WORD_RX = re.compile(r"\b(" + "|".join(sorted(WORDS, key=len, reverse=True)) + r")\b")
 _SENTENCE_START = re.compile(r"(?:^|[.!?:]\s+|\n\s*)$")
@@ -82,6 +91,16 @@ def _shouting(s: str) -> bool:
     holds acronyms (``2 · TEAP (XLSX / XLSM / CSV)``)."""
     words = [w for w in re.findall(r"[A-Za-z]+", s) if w not in WORDS]
     return bool(words) and all(w.isupper() for w in words) and any(w not in _ACRONYMS for w in words)
+
+
+def example_names(s: str) -> str:
+    """Rack names in the examples of a manual: NERc_01.1 / NER_20.1 read RKc_01.1 /
+    RK_20.1 (5.5.0). Never applied to what the server writes: a rack's name is
+    the person's, and a reason that names NERc_01.1 names that rack."""
+    s = re.sub(r"(?<![A-Za-z0-9])NERc_(\d)", r"RKc_\1", s)
+    s = re.sub(r"(?<![A-Za-z0-9])NER_(\d)", r"RK_\1", s)
+    s = re.sub(r"(?<![A-Za-z_])NERc(\d)", r"RKc\1", s)
+    return re.sub(r"(?<![A-Za-z_])NER(\d)", r"RK\1", s)
 
 
 def public_terms(s: str) -> str:

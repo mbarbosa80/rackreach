@@ -1,6 +1,6 @@
 # RackReach Map
 
-**Version 1.1.0** — the number lives in `VERSION`; see `CHANGELOG.md`.
+**Version 1.2.0** — the number lives in `VERSION`; see `CHANGELOG.md`.
 
 The map-only edition of RackReach: a local web
 application for studying rack placement on venue design books (design book) — import the

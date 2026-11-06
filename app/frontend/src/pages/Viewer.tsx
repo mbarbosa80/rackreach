@@ -116,12 +116,16 @@ const REF_DEFAULT_LABEL: Record<string, string> = { TER_REF: "TER", COW_REF: "CO
 import { t } from "../lib/i18n";
 import { useJob } from "../lib/useJob";
 import { bookSeries, pageName, sheetFromText, sheetNo } from "./panels";
+import { PageTiles, isTiledSheet } from "../components/PageTiles";
 
 const RENDER_SCALE = 2.2;
 /** The longest side of the page bitmap, in pixels (2.17.0). A 36×24 in sheet
  *  at 2.2 is 5,700 px wide and 87 MB of bitmap; a 48×36 in one would be 7,600
  *  px, which some browsers refuse outright. Above this the scale comes down. */
 const MAX_CANVAS_PX = 6000;
+/** How far the wheel zooms out: 0.05 showed a 34 x 22 in sheet in 120 px; a
+ *  master plan of 340 x 220 in needs about 0.04 to fit a laptop (5.5.0). */
+const MIN_ZOOM = 0.005;
 
 /** How two NER names are compared for "is this the same room?": case, spaces,
  *  dots and dashes ignored — "NER 21", "ner21" and "NER-21" are one name,
@@ -198,6 +202,8 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
   const [asideTab, setAsideTab] = useState<"inspector" | "naming">("inspector");
   const [bg, setBg] = useState<HTMLCanvasElement | null>(null);
   const [pdfSize, setPdfSize] = useState({ w: 1000, h: 700 });
+  // A sheet drawn in tiles instead of one bitmap (5.5.0): which one.
+  const [tiled, setTiled] = useState<{ drawingId: number; page: number } | null>(null);
   const [zoom, setZoom] = useState(0.6);
   const [pan, setPan] = useState({ x: 40, y: 40 });
   const [tool, setTool] = useState<Tool>("select");
@@ -261,6 +267,24 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
   const [indexTick, setIndexTick] = useState(0);
   /** Where the last search landed: ringed on the sheet for a few seconds. */
   const [focus, setFocus] = useState<{ page: number; x: number; y: number } | null>(null);
+  const lastTiledRef = useRef("");
+  const focusRef = useRef(focus);
+  focusRef.current = focus;
+  /** The whole of a tiled sheet on screen, centred (5.5.0). */
+  const sizeRef = useRef(size);
+  sizeRef.current = size;
+  const fitTiled = (w: number, h: number) => {
+    // The stage's own box (rc5): on the first sheet after the viewer opens,
+    // the size measured on mount is not rendered yet and the state still
+    // holds the default 900 x 640 — the sheet was fitted to that, not to
+    // the stage.
+    const el = wrapRef.current;
+    const sz = el && el.clientWidth > 0 && el.clientHeight > 0
+      ? { w: el.clientWidth, h: el.clientHeight } : sizeRef.current;
+    const z = Math.min(8, Math.max(MIN_ZOOM, Math.min(sz.w / w, sz.h / h) * 0.95));
+    setZoom(z);
+    setPan({ x: (sz.w - w * z) / 2, y: (sz.h - h * z) / 2 });
+  };
 
   useEffect(() => {
     if (p?.pages?.length && !p.pages.some((x: any) => x.number === page)) setPage(p.pages[0].number);
@@ -314,6 +338,8 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
   useEffect(() => {
     if (!p?.drawings?.length) { closeDoc(); return; }
     let cancelled = false;
+    // A tiled sheet clears the notice itself, once its first picture is in.
+    let tilesWillClear = false;
     (async () => {
       setBusy("Rendering the page…");
       try {
@@ -324,6 +350,46 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
         const drawing = p.drawings.find((d: any) => d.id === sheet?.drawing_id) ?? p.drawings[0];
         const pageInBook = sheet?.page ?? page;
         const key = `${p.id}:${drawing.id}`;
+        // A sheet larger than the single bitmap allows (5.5.0) comes in tiles
+        // from the server; PDF.js does not open the book for it at all.
+        if (sheet && isTiledSheet(sheet.width, sheet.height)) {
+          renderTaskRef.current?.cancel();
+          if (cancelled) return;
+          setPdfSize({ w: sheet.width, h: sheet.height });
+          setBg(null);
+          setTiled({ drawingId: drawing.id, page: pageInBook });
+          // Opened whole, unless a search or another screen sent the viewer
+          // to a point on it: at the usual zoom such a sheet shows a corner.
+          // Only on arriving at the sheet — the project reloading after an
+          // edit must not take the zoom away.
+          const sheetKey = `${p.id}:${drawing.id}:${pageInBook}`;
+          if (lastTiledRef.current !== sheetKey) {
+            lastTiledRef.current = sheetKey;
+            // The picture of a sheet just arrived at clears the notice when
+            // it is in; the same sheet again (a reload) is already drawn.
+            tilesWillClear = true;
+            // Sent to a point on THIS sheet: that point, not the whole.
+            const sentHere = (focusRef.current && focusRef.current.page === page)
+              || (pendingAt.current && pendingAt.current.page === page);
+            if (!sentHere) fitTiled(sheet.width, sheet.height);
+          }
+          return;
+        }
+        setTiled(null);
+        // Arriving from a tiled sheet (rc5): its zoom and pan put this one
+        // off screen — the usual view of a sheet instead (the Fit button's),
+        // unless a search or another screen sent the viewer to a point here.
+        if (lastTiledRef.current !== "") {
+          const sentHere = (focusRef.current && focusRef.current.page === page)
+            || (pendingAt.current && pendingAt.current.page === page);
+          if (!sentHere) {
+            setZoom(0.6); setPan({ x: 40, y: 40 });
+            // A search hit left behind on the tiled sheet is let go: back
+            // there, the sheet is fitted, not shown at this sheet's view.
+            if (focusRef.current && focusRef.current.page !== page) setFocus(null);
+          }
+        }
+        lastTiledRef.current = "";
         if (docRef.current && docRef.current.key !== key) closeDoc();
         if (!docRef.current) {
           const url = api.drawingFileUrl(p.id, drawing.id);
@@ -363,7 +429,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
         ctx.notify(`Could not render the page with PDF.js (${e.message}). ` +
                    `Check the drawing upload.`, "err");
       } finally {
-        if (!cancelled) setBusy("");
+        if (!cancelled && !tilesWillClear) setBusy("");
       }
     })();
     return () => { cancelled = true; };
@@ -613,7 +679,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
     const stage = e.target.getStage();
     const pointer = stage.getPointerPosition();
     const factor = e.evt.deltaY > 0 ? 1 / 1.12 : 1.12;
-    const next = Math.min(8, Math.max(0.05, zoom * factor));
+    const next = Math.min(8, Math.max(MIN_ZOOM, zoom * factor));
     setPan({
       x: pointer.x - ((pointer.x - pan.x) / zoom) * next,
       y: pointer.y - ((pointer.y - pan.y) / zoom) * next,
@@ -1180,7 +1246,10 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
             </select>
           )}
           <div className="tool-group view">
-            <button className="small" onClick={() => { setZoom(0.6); setPan({ x: 40, y: 40 }); }}>{t("Fit")}</button>
+            <button className="small" onClick={() => {
+              if (tiled) { fitTiled(pdfSize.w, pdfSize.h); return; }
+              setZoom(0.6); setPan({ x: 40, y: 40 });
+            }}>{t("Fit")}</button>
             <button className={`small ${showRadii ? "active" : ""}`} onClick={() => setShowRadii(!showRadii)}>{t("Radii")}</button>
             {/* On a key plan the spaces are never drawn (2.14.0): the switch
                 is off and stays off there. */}
@@ -1278,7 +1347,12 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
               sheet catches the click (4.7.0): a corner on a NER marker or on
               another route is the point of the click, not a selection. */}
           <Layer listening={!(tool === "route" || tool === "measure" || tool === "area")}>
-            {bg && <KImage image={bg as any} width={pdfSize.w} height={pdfSize.h} listening={false} />}
+            {bg && !tiled && <KImage image={bg as any} width={pdfSize.w} height={pdfSize.h} listening={false} />}
+            {tiled && p && (
+              <PageTiles projectId={p.id} drawingId={tiled.drawingId} page={tiled.page}
+                         width={pdfSize.w} height={pdfSize.h} zoom={zoom} pan={pan} size={size}
+                         onReady={() => setBusy((b) => (b === "Rendering the page…" ? "" : b))} />
+            )}
 
             {/* named areas (2.8.0): faint fill, outline, the name on a tag at
                 the centre. Under everything else — they are notes on the

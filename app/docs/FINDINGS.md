@@ -2,7 +2,7 @@
 
 Before writing any code, two real documents were analysed on the author's machine:
 a 34-page venue design book (`VEE`, vector PDF, 38 MB) and the event's
-`TEAP v2.0.xlsx` (15 sheets, 17,496 allocation rows, 96 venues).
+`demand list v2.0.xlsx` (15 sheets, 17,496 allocation rows, 96 venues).
 
 Five findings changed the design. They are recorded here because the brief was
 written from reasonable assumptions that the documents do not bear out, and
@@ -13,15 +13,15 @@ in measurement rather than in specification.
 
 ## 1. Colour does not distinguish criticality
 
-**Brief:** blue = TER, red = critical NER, yellow = non-critical NER.
+**Brief:** blue = equipment room, red = critical rack, yellow = non-critical rack.
 
-**Measured:** every equipment-room label on the drawing — `Critical NER 1`,
-`Critical NER 2`, `NER 5`, `NER 6`, … `Critical NER 20`, plus `COW #1` and
+**Measured:** every equipment-room label on the drawing — `Critical rack 1`,
+`Critical rack 2`, `rack 5`, `rack 6`, … `Critical rack 20`, plus `COW #1` and
 `COW #2` — is drawn in the *same* red, `#cc0000`. Criticality is carried by the
 word **"Critical"** in the label text. There is no yellow.
 
 **Consequence:** classifying on colour would have mislabelled every non-critical
-NER on the sheet. `pdf_ingest.py` scores label text first and treats colour as
+Rack on the sheet. `pdf_ingest.py` scores label text first and treats colour as
 corroborating evidence only, reporting a per-element confidence. The application's
 own output still uses the brief's colour notation, because that is a useful
 normalised legend — it just is not what it reads *from*.
@@ -32,13 +32,13 @@ class. Automatic detection is far more tractable than the brief assumed.
 
 ---
 
-## 2. The drawings already carry the TEAP space codes
+## 2. The drawings already carry the demand list space codes
 
-**Brief:** match TEAP location names to drawing room names through a
+**Brief:** match demand list location names to drawing room names through a
 similarity cascade.
 
-**Measured:** the venue design book prints the *same space-code taxonomy the TEAP
-uses* next to every room label — `SPT.016.01`, `TEC.004-02`, `VVO.001`,
+**Measured:** the venue design book prints the *same space-code taxonomy the demand list
+uses* next to every room label — `SPT.016.01`, a room code, `VVO.001`,
 `FNB.010-01`, `SEC.101`. 448 code instances resolving to 142 distinct base codes
 across 25 of 34 pages.
 
@@ -47,19 +47,19 @@ language-independent, so it runs **first**; fuzzy name matching became the
 fallback it should always have been. `matching.py` implements exact code → base
 code → exact name → normalised name → synonyms → similarity → context.
 
-Measured match rate for `VEE`: **46 of 70** distinct TEAP base codes (66%) match a
+Measured match rate for `VEE`: **46 of 70** distinct demand list base codes (66%) match a
 drawing code exactly.
 
 ---
 
 ## 3. Roughly a third of the gap is data quality, not a matching failure
 
-Of the 24 TEAP base codes with no drawing counterpart, a substantial share are
+Of the 24 demand list base codes with no drawing counterpart, a substantial share are
 placeholder rows (`BRS.DUM`, `FNB.DUM`, `LNS.DUM`, `LOG.DUM`, `NRG.DUM`,
 `PRS.DUM`, `PRT.DUM`, `SEC.DUM`, `SPT.DUM`, `TKT.DUM`) — allocations not tied to
 any real room.
 
-Conversely, ~96 drawing codes have no TEAP allocation at all. Some rooms
+Conversely, ~96 drawing codes have no demand list allocation at all. Some rooms
 legitimately need no technology; others are gaps in the plan. The tool cannot
 tell which, so it does not guess.
 
@@ -84,7 +84,7 @@ disagree, because this is a property of one workbook, not a guarantee.
 
 ---
 
-## 5. The TEAP has no building or floor column, and no criticality column
+## 5. The demand list has no building or floor column, and no criticality column
 
 The allocation sheet carries `Venue Code`, `Venue Name`, `Venue Type`, `Zone`,
 `FA Code`, `Space Code`, `Space Name`, product columns, `Network Ports` — and
@@ -94,10 +94,10 @@ nothing else locating a space vertically, and nothing stating criticality.
 
 * Level must come from the drawing match. Since the brief (correctly) forbids
   assuming cross-floor service, a space whose level is unresolved cannot be
-  analysed against a NER on another page until a shaft or riser is registered.
+  analysed against a rack on another page until a shaft or riser is registered.
   The tool says so explicitly rather than defaulting.
 * Criticality is never invented. `demand.py` attaches a warning to every space,
-  the coverage engine proposes the nearest *compatible* NER, and the assignment is
+  the coverage engine proposes the nearest *compatible* rack, and the assignment is
   flagged for human validation. The UI exposes a criticality selector per space.
 
 ---
@@ -121,7 +121,7 @@ real document pair and prints this report. Run it before trusting any coverage
 number from a new document family:
 
 ```bash
-python tools/validate_against.py "VEE_400_VVO.pdf" "TEAP v2.0.xlsx" --venue VEE
+python tools/validate_against.py "VEE_400_VVO.pdf" "demand list v2.0.xlsx" --venue VEE
 ```
 
 Against the reference pair:
@@ -130,9 +130,9 @@ Against the reference pair:
 |---|---|
 | Drawing | 34 pages parsed in 33 s, all vector, **0 pages needing OCR** |
 | Scales | `1:200` and `1:1500` found, from the keyword-anchored tier; every page has a candidate |
-| Equipment rooms | **26 detected: 7 critical NER, 14 non-critical NER, 2 COW, 3 IDF** — matching a manual read of the sheets exactly |
+| Equipment rooms | **26 detected: 7 critical rack, 14 non-critical rack, 2 COW, 3 IDF** — matching a manual read of the sheets exactly |
 | Spaces on drawings | 573 |
-| TEAP (`VEE`) | 317 rows → 115 spaces → 697 ports |
+| demand list (`VEE`) | 317 rows → 115 spaces → 697 ports |
 | Demand rules | **317 of 317 lines resolved by rule A** (explicit port count), **0 reconciliation warnings** |
 | Photographer areas | 4 detected and switched to the 70 m limit, including a 110-port `Main Photo Position - FOP` |
 | Matching | 74 of 115 (64%); excluding the **26 placeholder rows**, **74 of 89 real spaces = 83%** |
@@ -147,8 +147,8 @@ data, both now pinned by tests in `tests/test_real_world_regressions.py`:
    keyword-anchored (`SCALE 1 : 200`) first and trusted, then a bare `1:N` that
    requires a colon, forbids the `1` being the tail of a longer number, and
    restricts the denominator to values drawings actually use.
-2. **Phantom equipment rooms.** A substring search picked up `Rack (NER)`,
-   `Rack (NER) -`, `(TER)` and `(COW/Temporary` from an annotation block. The
+2. **Phantom equipment rooms.** A substring search picked up `Rack (rack)`,
+   `Rack (rack) -`, `(equipment room)` and `(COW/Temporary` from an annotation block. The
    marker pattern is now anchored at both ends of the label.
 
 **One thing to be aware of in real use:** 41 of 74 matches land in the review
@@ -178,7 +178,7 @@ distance.
 The first release survived its own tests and then met a real working session. Four
 things went wrong, all of them mine.
 
-### 1. The TEAP was imported without a venue filter
+### 1. The demand list was imported without a venue filter
 
 The master allocation plan covers **96 venues**. Imported whole against one
 venue's drawings it produced **5,543 spaces instead of 115**, matched rooms at

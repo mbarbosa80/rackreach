@@ -12,7 +12,7 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
 from sqlalchemy import select
@@ -113,11 +113,39 @@ def _tile(project_id: int, map_id: int, z: int, x: int, y: int) -> bytes:
             raise HTTPException(404, str(exc)) from exc
 
 
-@router.get("/projects/{project_id}/composite/{map_id}/tiles/{z}/{x}/{y}.png")
-async def composite_tile(project_id: int, map_id: int, z: int, x: int, y: int) -> Response:
+def _tile_on_disk(project_id: int, map_id: int, z: int, x: int, y: int) -> Optional[bytes]:
+    """The map's tile if it was drawn before (rc5) — read without waiting for
+    the tiles being drawn. A project being removed serves nothing."""
+    from .. import page_tiles as PT
+    if project_id in PT._removing_projects:
+        raise HTTPException(404, "the project was removed")
+    with SessionLocal() as db:
+        m = db.get(CompositeMap, map_id)
+        if m is None or m.project_id != project_id:
+            raise HTTPException(404, "composite map not found")
+        try:
+            return CS.cached_tile(m, z, x, y)
+        except CS.CompositeError as exc:
+            raise HTTPException(404, str(exc)) from exc
+
+
+#: The map's tiles, guarded without holding a database connection (5.5.0,
+#: see ``auth_routes.tile_guard``).
+tiles_router = APIRouter()
+
+
+@tiles_router.get("/projects/{project_id}/composite/{map_id}/tiles/{z}/{x}/{y}.png")
+async def composite_tile(request: Request, project_id: int, map_id: int, z: int, x: int,
+                         y: int) -> Response:
     # Off the event loop: a tile of a 60-sheet level is a second of PyMuPDF
     # the first time it is asked for (cached on disk afterwards).
-    png = await run_in_threadpool(_tile, project_id, map_id, z, x, y)
+    # On the tiles' own threads (5.5.0), never the general pool: see
+    # ``api/tile_runner.py``. At most that many map tiles hold a database
+    # session while they wait for the renderer.
+    from .tile_runner import run_tile
+    png = await run_tile(request, _tile, project_id, map_id, z, x, y, cached=_tile_on_disk)
+    if isinstance(png, Response):
+        return png
     return Response(png, media_type="image/png",
                     headers={"Cache-Control": "private, max-age=86400"})
 

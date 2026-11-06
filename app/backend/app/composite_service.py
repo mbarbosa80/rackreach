@@ -20,6 +20,7 @@ on each sheet. The map is where the decisions are taken.
 from __future__ import annotations
 
 import collections
+import contextlib
 import datetime as _dt
 import logging
 import math
@@ -32,6 +33,7 @@ from pathlib import Path
 from typing import Any, Callable, Optional
 
 from sqlalchemy import select
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.orm import Session
 
 from . import isolate
@@ -68,8 +70,66 @@ STATE_PDF = {
                      "width": 2.5, "word": "CONTRADICTED"},
 }
 
+class _TileLock:
+    """A lock in which a removal goes first (5.5.0-rc5).
+
+    Taken like ``threading.Lock`` (``with _TILE_LOCK:``) by everything that
+    draws a tile; ``with _TILE_LOCK.first():`` by the removal of a book, a map
+    or a project, which then takes it as soon as the holder lets go, ahead of
+    every tile waiting. With a plain lock a removal waited for whichever tiles
+    won the lock while it waited (independent tester, rc4: two tiles of the
+    book being removed were drawn after the removal had started, 9.2 s)."""
+
+    def __init__(self) -> None:
+        self._cv = threading.Condition(threading.Lock())
+        self._held = False
+        self._urgent = 0
+
+    def acquire(self, urgent: bool = False) -> bool:
+        with self._cv:
+            if urgent:
+                self._urgent += 1
+                try:
+                    while self._held:
+                        self._cv.wait()
+                finally:
+                    self._urgent -= 1
+                    if not self._urgent:
+                        self._cv.notify_all()
+            else:
+                while self._held or self._urgent:
+                    self._cv.wait()
+            self._held = True
+        return True
+
+    def release(self) -> None:
+        with self._cv:
+            if not self._held:
+                raise RuntimeError("release of an unheld tile lock")
+            self._held = False
+            self._cv.notify_all()
+
+    def locked(self) -> bool:
+        return self._held
+
+    def __enter__(self) -> "_TileLock":
+        self.acquire()
+        return self
+
+    def __exit__(self, *exc) -> None:
+        self.release()
+
+    @contextlib.contextmanager
+    def first(self):
+        self.acquire(urgent=True)
+        try:
+            yield self
+        finally:
+            self.release()
+
+
 #: One lock for the PyMuPDF documents the tiles are cut from, and the folder.
-_TILE_LOCK = threading.Lock()
+_TILE_LOCK = _TileLock()
 
 
 class CompositeError(ValueError):
@@ -94,26 +154,76 @@ def _tiles_dir(cmap: CompositeMap) -> Path:
     return project_dir(cmap.project_id) / (Path(cmap.base_file).stem + "_tiles")
 
 
+#: Maps whose files are being removed (rc6), until their row is gone or
+#: carries the new picture (rc7): no tile of theirs is served meanwhile, from
+#: disk or drawn — a tile that waited for the lock drew the picture of a map
+#: being removed again (independent tester, rc6). Counted: the removal of a
+#: map nests the removal of its files.
+_dropping_maps: "collections.Counter[int]" = collections.Counter()
+_DROPPING_GUARD = threading.Lock()
+
+
+@contextlib.contextmanager
+def dropping(maps):
+    ids = [m.id for m in maps if m.id is not None]
+    with _DROPPING_GUARD:
+        _dropping_maps.update(ids)
+    try:
+        yield
+    finally:
+        with _DROPPING_GUARD:
+            for i in ids:
+                _dropping_maps[i] -= 1
+                if _dropping_maps[i] <= 0:
+                    del _dropping_maps[i]
+
+
+def _being_removed(cmap: CompositeMap) -> bool:
+    from . import page_tiles as PT
+    return (cmap.id in _dropping_maps or cmap.drawing_id in PT._removing_drawings
+            or cmap.project_id in PT._removing_projects)
+
+
 def _drop_files(cmap: CompositeMap) -> None:
     if not cmap.base_file:
         return
-    with _TILE_LOCK:
-        C.forget(str(base_path(cmap)))
-        base_path(cmap).unlink(missing_ok=True)
-        shutil.rmtree(_tiles_dir(cmap), ignore_errors=True)
+    with dropping([cmap]):
+        with _TILE_LOCK.first():
+            _drop_files_locked(cmap)
 
 
-def remove_project_maps(project_id: int) -> Optional[str]:
+def _drop_files_locked(cmap: CompositeMap) -> None:
+    """Callers hold the tile lock."""
+    if not cmap.base_file:
+        return
+    C.forget(str(base_path(cmap)))
+    base_path(cmap).unlink(missing_ok=True)
+    shutil.rmtree(_tiles_dir(cmap), ignore_errors=True)
+
+
+def remove_project_maps(project_id: int, *, locked: bool = False,
+                        aside: Optional[list] = None) -> Optional[str]:
     """Delete a deleted project's maps from disk (5.1.2). Under the tile lock,
     after closing every picture of the project the server holds open: an open
     file cannot be deleted on Windows, and drawing ahead keeps the picture open.
-    Anything still queued for the project finds its picture gone and stops."""
+    Anything still queued for the project finds its picture gone and stops.
+    ``locked``: the caller holds the lock already (a project's removal, rc6).
+    ``aside``: the folder (the maps and the viewer's tiles) is only moved
+    aside and listed there, to be deleted once the lock is let go (rc7)."""
     d = settings.composite_dir / f"project_{project_id}"
-    with _TILE_LOCK:
-        C.forget_under(str(d))
-        if not d.is_dir():
-            return None
-        shutil.rmtree(d, ignore_errors=True)
+    if not locked:
+        with _TILE_LOCK.first():
+            return remove_project_maps(project_id, locked=True, aside=aside)
+    C.forget_under(str(d))
+    if not d.is_dir():
+        return None
+    if aside is not None:
+        from .services import set_aside
+        moved = set_aside(d)
+        if moved is not None:
+            aside.append(moved)
+            return str(d)
+    shutil.rmtree(d, ignore_errors=True)
     return str(d)
 
 
@@ -200,6 +310,17 @@ def build(db: Session, project: Project, drawing: Drawing, *, only: Optional[lis
     if not groups:
         raise CompositeError(f"every level of {drawing.filename} is drawn on one sheet — "
                              f"nothing to lay out")
+    held = contextlib.ExitStack()
+    with held:
+        _build_rows(db, project, drawing, groups, rows, built, held, prog, actor)
+        db.commit()
+    for row in rows:
+        draw_ahead(row)
+    prog(1.0, "done")
+    return {"maps": built}
+
+
+def _build_rows(db, project, drawing, groups, rows, built, held, prog, actor) -> None:
     for i, g in enumerate(groups):
         prog(0.85 + 0.15 * i / max(1, len(groups)), f"{g['label']}: composing the picture")
         row = db.execute(select(CompositeMap).where(
@@ -222,6 +343,7 @@ def build(db: Session, project: Project, drawing: Drawing, *, only: Optional[lis
             row = CompositeMap(project_id=project.id, drawing_id=drawing.id, group_key=g["key"])
             db.add(row)
         else:
+            held.enter_context(dropping([row]))     # until the commit (rc7)
             _drop_files(row)
         row.label, row.level, row.mpu = g["label"], g["level"], g["mpu"]
         row.frame, row.refine, row.no_scale = g["frame"], g["refine"], g["no_scale"]
@@ -240,11 +362,6 @@ def build(db: Session, project: Project, drawing: Drawing, *, only: Optional[lis
                 **{k: v for k, v in st.items()}})
         built.append(summary(row, drawing))
         rows.append(row)
-    db.commit()
-    for row in rows:
-        draw_ahead(row)
-    prog(1.0, "done")
-    return {"maps": built}
 
 
 def _compose(row: CompositeMap, drawing: Drawing) -> None:
@@ -327,14 +444,17 @@ def set_excluded(db: Session, project: Project, cmap: CompositeMap, page: int, e
     hit[0]["excluded"] = bool(excluded)
     cmap.sheets = sheets
     drawing = db.get(Drawing, cmap.drawing_id)
-    _drop_files(cmap)
-    cmap.base_file = ""
-    if cmap.frame:
-        _compose(cmap, drawing)
-    _audit(db, project.id, "composite.sheet_excluded", cmap,
-           {"group": cmap.label, "page": page, "sheet": hit[0].get("sheet_number"),
-            "excluded": bool(excluded)}, actor=actor)
-    db.commit()
+    # No tile of the map, from disk or drawn, until the new state is
+    # committed (rc7): one that waited for the lock composed it again.
+    with dropping([cmap]):
+        _drop_files(cmap)
+        cmap.base_file = ""
+        if cmap.frame:
+            _compose(cmap, drawing)
+        _audit(db, project.id, "composite.sheet_excluded", cmap,
+               {"group": cmap.label, "page": page, "sheet": hit[0].get("sheet_number"),
+                "excluded": bool(excluded)}, actor=actor)
+        db.commit()
     draw_ahead(cmap)
     return summary(cmap, drawing)
 
@@ -366,24 +486,30 @@ def move_sheet(db: Session, project: Project, cmap: CompositeMap, page: int,
     cmap.sheets = sheets
     cmap.frame = C.frame_of(sheets) or cmap.frame
     drawing = db.get(Drawing, cmap.drawing_id)
-    _drop_files(cmap)
-    cmap.base_file = ""
-    if cmap.frame:
-        _compose(cmap, drawing)
-    _audit(db, project.id, "composite.sheet_moved", cmap,
-           {"group": cmap.label, "page": page, "sheet": sh.get("sheet_number"),
-            "dx_m": round(dx_m, 2), "dy_m": round(dy_m, 2), "from": frm,
-            "to": {"tx": sh["tx"], "ty": sh["ty"]}}, actor=actor)
-    db.commit()
+    # No tile of the map, from disk or drawn, until the new state is
+    # committed (rc7): one that waited for the lock composed it again.
+    with dropping([cmap]):
+        _drop_files(cmap)
+        cmap.base_file = ""
+        if cmap.frame:
+            _compose(cmap, drawing)
+        _audit(db, project.id, "composite.sheet_moved", cmap,
+               {"group": cmap.label, "page": page, "sheet": sh.get("sheet_number"),
+                "dx_m": round(dx_m, 2), "dy_m": round(dy_m, 2), "from": frm,
+                "to": {"tx": sh["tx"], "ty": sh["ty"]}}, actor=actor)
+        db.commit()
     draw_ahead(cmap)
     return summary(cmap, drawing)
 
 
 def delete(db: Session, project: Project, cmap: CompositeMap, *, actor: str = "user") -> None:
-    _drop_files(cmap)
-    _audit(db, project.id, "composite.deleted", cmap, {"group": cmap.label}, actor=actor)
-    db.delete(cmap)
-    db.commit()
+    # No tile of the map, from disk or drawn, until the new state is
+    # committed (rc7): one that waited for the lock composed it again.
+    with dropping([cmap]):
+        _drop_files(cmap)
+        _audit(db, project.id, "composite.deleted", cmap, {"group": cmap.label}, actor=actor)
+        db.delete(cmap)
+        db.commit()
 
 
 def _audit(db: Session, project_id: int, action: str, cmap: Optional[CompositeMap],
@@ -403,21 +529,45 @@ def _audit(db: Session, project_id: int, action: str, cmap: Optional[CompositeMa
 # Tiles
 # ---------------------------------------------------------------------------
 
-def tile(db: Session, cmap: CompositeMap, z: int, x: int, y: int) -> bytes:
+def _tile_path(cmap: CompositeMap, z: int, x: int, y: int) -> Path:
     if not cmap.frame:
         raise CompositeError("no sheet of this map could be placed")
     if not 0 <= z <= C.TILE_ZMAX or x < 0 or y < 0:
         raise CompositeError("no such tile")
-    path = _tiles_dir(cmap) / str(z) / f"{x}_{y}.png"
-    if path.exists():
-        return path.read_bytes()
+    return _tiles_dir(cmap) / str(z) / f"{x}_{y}.png"
+
+
+def cached_tile(cmap: CompositeMap, z: int, x: int, y: int) -> Optional[bytes]:
+    """The tile when it is on disk, else None — without the lock (rc5). A map
+    whose files are being removed serves nothing (rc6)."""
+    if _being_removed(cmap):
+        raise CompositeError("the map is being rebuilt or removed")
+    try:
+        return _tile_path(cmap, z, x, y).read_bytes()
+    except OSError:
+        return None
+
+
+def tile(db: Session, cmap: CompositeMap, z: int, x: int, y: int) -> bytes:
+    path = _tile_path(cmap, z, x, y)
+    hit = cached_tile(cmap, z, x, y)
+    if hit is not None:
+        return hit
     with _TILE_LOCK:
+        # A map, book or project removed (or a map rebuilt) while this request
+        # waited for the lock: nothing drawn, nothing composed (rc7) — page
+        # tiles check the same inside the lock.
+        if _being_removed(cmap):
+            raise CompositeError("the map is being rebuilt or removed")
         # Read the row again inside the lock (5.1.0, D30): the tiles of a
         # window ask in parallel, each request with its own session read
         # before the lock. Without this, every waiting request still saw the
         # picture missing and composed one more copy — six PDFs of one map,
         # five of them never referenced, on 30 Oct 2026.
-        db.refresh(cmap)
+        try:
+            db.refresh(cmap)
+        except InvalidRequestError as exc:      # the row went meanwhile
+            raise CompositeError("the map was removed") from exc
         if not cmap.base_file or not base_path(cmap).exists():
             # The picture went (a restored backup does not carry it): compose
             # it again from the placement kept in the database.

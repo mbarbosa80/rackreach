@@ -46,6 +46,31 @@ def current_user(ner_session: Optional[str] = Cookie(default=None),
     return user
 
 
+def tile_guard(request: Request, ner_session: Optional[str] = Cookie(default=None)) -> None:
+    """Who may read a tile (5.5.0): signed in, and able to read the project.
+
+    The same checks as :func:`current_user` and :func:`project_guard`, with a
+    session of its own closed before the tile is drawn. Those two hold a
+    database connection until the response is sent; a sheet asks for dozens
+    of tiles at once, each waiting its turn for the renderer, and forty of them
+    held every connection of the pool — the server stopped answering anyone,
+    sign-in included, for minutes (independent tester, 5.5.0-rc1).
+    """
+    from ..db import SessionLocal
+    with SessionLocal() as db:
+        user = A.resolve_session(db, ner_session)
+        if user is None:
+            raise HTTPException(401, "sign in to continue")
+        raw = request.path_params.get("project_id")
+        try:
+            project_id = int(raw)
+        except (TypeError, ValueError):
+            raise HTTPException(404, "project not found")
+        project = db.get(Project, project_id)
+        if project is None or not A.can_read_project(user, project):
+            raise HTTPException(404, "project not found")
+
+
 def require_admin(user: User = Depends(current_user)) -> User:
     if not user.is_admin:
         raise HTTPException(403, "this needs an administrator account")

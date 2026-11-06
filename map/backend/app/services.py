@@ -10,6 +10,7 @@ import threading
 
 import datetime as _dt
 import hashlib
+import os
 import re
 import shutil
 from pathlib import Path
@@ -124,18 +125,82 @@ def next_project_id(db: Session) -> int:
 def remove_project_files(project_id: int) -> list[str]:
     """Delete a deleted project's uploads and exports from disk (4.2.0). The
     manual promised it; the folders stayed, with the venue's documents in them."""
+    # The books the viewer's tiles keep open (5.5.0) are closed first: on
+    # Windows an open file cannot be deleted.
+    # One hold of the tile lock for all of it (rc6): each further take waited
+    # again for a tile of another project drawn in between.
+    # Under the lock the folders are only moved aside (rc7), deleted once it
+    # is let go: deleting them there held every other project's undrawn tiles
+    # for the whole delete (25 s for 300,000 tiles, independent tester, rc6).
+    from . import page_tiles as PT
+    gone: list[str] = []
+    aside: list[Path] = []
+    try:
+        PT.drop_project(project_id, str(settings.uploads_dir / f"project_{project_id}"),
+                        then=lambda: gone.extend(_remove_project_files(project_id, aside)))
+    finally:
+        PT.drop_done(project_id=project_id)
+        for d in aside:
+            shutil.rmtree(d, ignore_errors=True)
+    return gone
+
+
+#: A project folder moved aside to be deleted (rc7):
+#: ``.removing-project_<id>-<ms>`` beside it, on the same volume.
+_ASIDE = re.compile(r"\.removing-project_[0-9]+-[0-9]+")   # ASCII digits only (rc8)
+
+
+def set_aside(d: Path) -> Optional[Path]:
+    """Move a folder aside to be deleted later; None when it cannot be (a
+    file in it held open on Windows) — the caller deletes it in place."""
+    import time as _t
+    dest = d.with_name(f".removing-{d.name}-{int(_t.time() * 1000)}")
+    try:
+        os.replace(d, dest)
+    except OSError:
+        return None
+    return dest
+
+
+def _remove_project_files(project_id: int, aside: Optional[list] = None) -> list[str]:
+    """Callers hold the tile lock (``PT.drop_project``). With ``aside``, the
+    folders are moved aside and listed there, for the caller to delete after
+    letting go of the lock."""
     gone = []
     for base in (settings.uploads_dir, settings.exports_dir):
         d = base / f"project_{project_id}"
         if d.is_dir():
-            shutil.rmtree(d, ignore_errors=True)
+            moved = set_aside(d) if aside is not None else None
+            if moved is not None:
+                aside.append(moved)
+            else:
+                shutil.rmtree(d, ignore_errors=True)
             gone.append(str(d))
     # The maps (5.1.2): the server may hold a map's picture open to draw it, and
     # on Windows an open file cannot be deleted - the folder stayed behind.
     from . import composite_service as CS
-    d = CS.remove_project_maps(project_id)
+    d = CS.remove_project_maps(project_id, locked=True, aside=aside)
     if d:
         gone.append(d)
+    return gone
+
+
+def delete_removal_leftovers() -> list[str]:
+    """Delete the folders a project removal moved aside and could not delete
+    (the server stopped in between) — at start, in the background (rc7). Only
+    ``.removing-project_<id>-<ms>`` folders, which only a removal makes."""
+    gone = []
+    for base in (settings.uploads_dir, settings.exports_dir, settings.composite_dir):
+        try:
+            found = [d for d in base.iterdir() if d.is_dir() and _ASIDE.fullmatch(d.name)]
+        except OSError:
+            continue
+        for d in found:
+            if d.is_symlink():          # never followed, never reported as gone (rc8)
+                continue
+            shutil.rmtree(d, ignore_errors=True)
+            if not d.exists():
+                gone.append(str(d))
     return gone
 
 
@@ -427,8 +492,14 @@ def delete_drawing(db: Session, project: Project, drawing: Drawing, *,
     # Its composite maps (5.0.0) go with it: the rows by the foreign key, the
     # pictures and tiles here.
     from . import composite_service as _CS
-    for _m in _CS.maps_of(db, project.id, drawing.id):
-        _CS._drop_files(_m)
+    from . import page_tiles as _PT
+    # And the viewer's tiles of its sheets (5.5.0), the book closed first —
+    # the maps' files in the same hold of the tile lock (rc6).
+    _maps = list(_CS.maps_of(db, project.id, drawing.id))
+    with _CS.dropping(_maps):
+        _PT.drop_drawing(project.id, drawing.id, drawing.stored_path,
+                         then=lambda: [_CS._drop_files_locked(_m) for _m in _maps])
+    for _m in _maps:
         db.delete(_m)
     db.delete(drawing)
     db.flush()
@@ -452,6 +523,9 @@ def delete_drawing(db: Session, project: Project, drawing: Drawing, *,
                 out["file_removed"] = True
         except OSError:
             out["file_removed"] = False
+    # The book's row and file are gone: a tile asked from now on finds no row
+    # (an id SQLite gives again to the next book is that book's).
+    _PT.drop_done(drawing_id=drawing.id)
     return out
 
 
@@ -561,6 +635,12 @@ def _place_ners_from_drawing(db: Session, project: Project, drawing: Optional[Dr
                                     d.stored_path, skip_pages=sorted(key_pages),
                                     progress=_page_progress)
             except Exception as exc:  # noqa: BLE001 — a book that cannot be re-read
+                # A cancel is not a book that cannot be read (5.5.0): it used
+                # to be caught here, and the step went on to record "0 rooms
+                # found" for the book (independent tester, rc3).
+                from .jobs import JobCancelled
+                if isinstance(exc, JobCancelled):
+                    raise
                 summary["ner_pass_error"] = str(exc)
         order = {"code": 0, "label": 1, "symbol": 2}
         rooms.sort(key=lambda r: (order.get(r.source, 3), r.page, round(r.y / 20.0), r.x))

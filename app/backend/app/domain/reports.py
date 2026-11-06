@@ -61,7 +61,7 @@ def ner_full_name(venue_code: Optional[str], name: str) -> str:
     return f"{code}_{name}"
 
 #: Stamped on every export so a file found on a desk months later says which
-#: build produced it. Reads "RackReach 5.4.0".
+#: build produced it. Reads "RackReach 5.5.0".
 PRODUCED_BY = f"{APP_NAME} {__version__}"
 
 DISCLAIMER = (

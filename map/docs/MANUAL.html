@@ -416,7 +416,7 @@ kbd {
 <div class="wrap">
 <header class="masthead">
 <div class="id">
-<div class="eyebrow">RackReach Map · version 1.1.0 · map study</div>
+<div class="eyebrow">RackReach Map · version 1.2.0 · map study</div>
 <h1>User manual</h1>
 
 <p>How the RackReach Map works, screen by screen. It is the map half of RackReach and nothing else: you load the design books (design book), confirm the scales, place and move racks and the other markers by hand, measure, and export the marked-up map as a PDF. There is no demand list, no matching, no demand and no coverage calculation here. The version history is in <code>CHANGELOG.md</code>.</p>
@@ -519,7 +519,7 @@ kbd {
 <tr><td class="ctrl">Key plan</td><td>Marks a sheet that only illustrates (key enlarged plan, index, abbreviations). Its rooms are not read and <code>Place racks from the drawing</code> skips it; you can still draw on it by hand. Ticked from the title block; change it and press <code>Apply key-plan ticks</code>.</td></tr>
 <tr><td class="ctrl">Set (ratio or text) / Confirm</td><td>Type <code>200</code> or <code>1/8" = 1'-0"</code> to override the detected scale; <code>Confirm</code> applies it (or the detected one) and marks the page confirmed.</td></tr>
 <tr><td class="ctrl">Confirm all pages</td><td>Confirms every page that has a scale, in one go.</td></tr>
-<tr><td class="ctrl">Place racks from the drawing</td><td>Places the racks the books state — team annotations, TEC.010 / TEC.020 (or TEC.003.01 / .02) rooms, "Network Equipment Rack" labels, rack block symbols — never on a key plan and never where a rack already is. They are named in sequence (RKc_01.1 …, RK_20.1 …). Running it again only adds what is missing. Optional: you can draw every rack yourself instead.</td></tr>
+<tr><td class="ctrl">Place racks from the drawing</td><td>Places the racks the books state — team annotations, the room codes (or a room code) rooms, "Network Equipment Rack" labels, rack block symbols — never on a key plan and never where a rack already is. They are named in sequence (RKc_01.1 …, RK_20.1 …). Running it again only adds what is missing. Optional: you can draw every rack yourself instead.</td></tr>
 </tbody></table></div>
 </section>
 
@@ -527,6 +527,8 @@ kbd {
 <div class="screen-step">Step 3</div>
 <h2>Drawing viewer</h2>
 <p class="lede">Where the work is done. The page selector, the key-plan switch and the search are at the top; the tools are in the column on the left; the inspector is on the right.</p>
+<h4>Very large sheets (the 900 series)</h4>
+<p>An ordinary sheet (34 × 22 in) is drawn once, whole, in the browser. A sheet larger than about 38 in on its longest side — the <strong>900-series master plans</strong>, a whole level of the venue on a sheet of 340 × 220 in — is drawn instead from <strong>tiles</strong> the server cuts at the zoom on screen: a picture of the whole sheet first, then the part in view, sharp, again at every zoom and pan. Such a sheet opens fitted to the window, and <code>Fit</code> fits it again. The first opening takes a few seconds while the server reads the sheet; the tiles are kept, so it is quicker afterwards. Every tool works on it as on an ordinary sheet. Importing such a book is also lighter: the strokes are read one at a time and only those that can be a rack symbol or a label's arrow are kept, so a book of four master plans imports in a minute or two without filling the computer's memory. Going from such a sheet to an ordinary one shows the ordinary sheet at its usual view, as <code>Fit</code> does. A part of a sheet the server cannot draw within 45 seconds stays blank for two minutes, with <em>Part of this sheet is slow to draw — trying again in N s</em> at the top left of the view, and is then asked for again by itself, without a pan or a zoom; each further try that does not make it waits twice as long (up to 15 minutes). It holds up no other part and no other sheet.</p>
 <h4>Tools</h4>
 <div class="tablewrap"><table>
 <thead><tr><th>Tool</th><th>What it does</th></tr></thead>

@@ -3,7 +3,7 @@
 A free desktop tool for event and venue technology teams. It crosses venue design drawings with the equipment demand spreadsheet, assigns every space to the network rack that serves it, counts the ports and checks the 90 m / 70 m distance limits, entirely on the user's own computer. Nothing is sent to the cloud.
 
 **Site:** https://mbarbosa80.github.io/rackreach/
-**Download:** [Releases](https://github.com/mbarbosa80/rackreach/releases) — RackReach 5.4.0 and RackReach Map 1.1.0, for Windows 10/11 (64-bit) and macOS on Apple Silicon. — Windows 10/11 (64-bit) and macOS on Apple Silicon. Python comes inside the package; no administrator rights, no internet needed to install.
+**Download:** [Releases](https://github.com/mbarbosa80/rackreach/releases) — RackReach 5.5.0 and RackReach Map 1.2.0, for Windows 10/11 (64-bit) and macOS on Apple Silicon. — Windows 10/11 (64-bit) and macOS on Apple Silicon. Python comes inside the package; no administrator rights, no internet needed to install.
 
 ## What is in this repository
 

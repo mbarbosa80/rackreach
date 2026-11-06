@@ -7,9 +7,9 @@ Decision: Marcelo asked for this to be documented rather than built for now.
 
 ## The workflow this has to serve
 
-1. Analyse VDB v1. Decide: remove NER 12, reposition NER 7, accept suggested NER Z.
+1. Analyse design book v1. Decide: remove rack 12, reposition rack 7, accept suggested rack Z.
 2. Send those decisions to the VNI team.
-3. VNI redraws. VDB v2 arrives.
+3. VNI redraws. Design book v2 arrives.
 4. Upload v2 and answer one question: **did they do what I asked?**
 
 Step 4 is not "re-run the analysis". It is a *reconciliation* between the decisions
@@ -20,7 +20,7 @@ that today.
 
 ## What happens today, and why it is worse than "unsupported"
 
-Uploading a second VDB into the same project does not fail. It **silently
+Uploading a second design book into the same project does not fail. It **silently
 corrupts the analysis**.
 
 Page number is an integer scoped to the *project*, not to the document:
@@ -38,7 +38,7 @@ one as though they were the same plan. The numbers stay plausible. They are
 wrong.
 
 **Interim rule, agreed 2026-08-27:** when v2 arrives, create a **new project**
-for it and carry the v1 NER register across as an exported XLSX for manual
+for it and carry the v1 rack register across as an exported XLSX for manual
 reference. Reconciliation is done by eye. No number is wrong; the comparison is
 just manual.
 
@@ -124,7 +124,7 @@ verdicts:
 
 | Verdict | Meaning |
 |---|---|
-| **Applied** | asked to remove NER 12; v2 has no NER 12 |
+| **Applied** | asked to remove rack 12; v2 has no rack 12 |
 | **Not applied** | asked to remove it; it is still there |
 | **Applied differently** | asked to move it to X; it moved to Y |
 | **Changed without being asked** | a room appeared, vanished or moved with no decision behind it |
@@ -163,9 +163,9 @@ request → reconciliation.
 
 ---
 
-## The same mechanism covers the TEAP
+## The same mechanism covers the demand list
 
-A TEAP v2.1 is another document version against the same register: new demand
+A demand list v2.1 is another document version against the same register: new demand
 rows, re-matched to the same spaces, with a diff of what the demand did. Not in
 scope here, but the model above accommodates it without a second design.
 
@@ -174,8 +174,8 @@ scope here, but the model above accommodates it without a second design.
 # Part 2 — the refinement lifecycle
 
 Added 2026-08-27 after Marcelo described the full loop: the app is not used once.
-It is used to **refine** the TEC delivery across many VDB versions, driving toward
-shorter distances and *fewer* NERs, until a design freeze near delivery.
+It is used to **refine** the TEC delivery across many design book versions, driving toward
+shorter distances and *fewer* racks, until a design freeze near delivery.
 
 Three things follow from that, and each breaks or extends something above.
 
@@ -183,10 +183,10 @@ Three things follow from that, and each breaks or extends something above.
 
 ## 5. Renumbering breaks label-based re-linking
 
-The stated case: *delete NER007, then rename NER033 — the last one — to NER007.*
+The stated case: *delete RK007, then rename RK033 — the last one — to RK007.*
 
-The internal identity holds. `NER-0033` keeps its immutable code, gains the
-display name `NER 007`, and the rename is in `NerNameHistory`. Every report ever
+The internal identity holds. `rack-0033` keeps its immutable code, gains the
+display name `rack 007`, and the rename is in `NerNameHistory`. Every report ever
 issued stays traceable. That part works, and it is why the code is immutable.
 
 **The re-link does not.** Two problems, both real today:
@@ -197,7 +197,7 @@ issued stays traceable. That part works, and it is why the code is immutable.
 `deleted_at` and not `merged_into_id`. A **rejected** asset — `keep_decision =
 reject`, `status = rejected` — is still indexed under its display name.
 
-So after the renumber, two assets answer to `NER 007`: the rejected original and
+So after the renumber, two assets answer to `rack 007`: the rejected original and
 the renamed survivor. They are on the same level and in the same building, so
 label, level and building all agree for both. The score is identical and the
 tie-break is arbitrary. The v2 marker can be linked to **the room that was
@@ -244,8 +244,8 @@ mistake. Share the `Candidate`/`Comparison` shapes; do not share the weights.
 ### 5c. An operational risk that costs nothing to avoid
 
 The immutable code protects the database. It does **not** protect the conversation
-with the VNI team. If a change request goes out saying *"move NER 007"* while
-`NER 007` is being reassigned from one physical room to another, the two sides
+with the VNI team. If a change request goes out saying *"move rack 007"* while
+`rack 007` is being reassigned from one physical room to another, the two sides
 will mean different rooms by the same name, and both will believe they agree.
 
 Every change request must therefore carry, per row: the **internal code**, the
@@ -254,9 +254,9 @@ thing standing between a renumber and a wrong room being rebuilt.
 
 ---
 
-## 6. Reducing the NER count — what the tool can and cannot prove
+## 6. Reducing the rack count — what the tool can and cannot prove
 
-The goal is a significantly smaller set of NERs per venue. The tool can support
+The goal is a significantly smaller set of racks per venue. The tool can support
 that honestly, but only up to a line it must not cross.
 
 **What it can prove:** that a room is *spatially* redundant — every area it
@@ -264,12 +264,12 @@ serves is reachable, within the applicable limit, from another room that is bein
 kept. That is a complete, checkable statement, and it is the evidence needed to
 argue for a removal.
 
-The missing piece today is the direct question: **"if I remove this NER, what
+The missing piece today is the direct question: **"if I remove this rack, what
 happens?"** `redundancy_candidates()` only finds rooms carrying no load at all.
 The useful analysis is one step further — for a room that *is* loaded, re-run the
 assignment with it excluded and report, per area it currently serves: still
 covered and by whom, or falls out. Nothing in the engine prevents this; it is a
-second `compute_coverage()` run over the same inputs with one NER removed.
+second `compute_coverage()` run over the same inputs with one rack removed.
 
 **What it cannot prove:** that the room is *removable*. Power, cooling, physical
 space, security, maintenance access, A/B route independence and operational
@@ -278,10 +278,10 @@ routinely unknown.
 
 So the honest framing, and the one to use internally: the app produces the
 **shortlist and the evidence**; the engineering decision stays with a person, room
-by room. "The app cut NERs from 26 to 18" is a claim that needs 8 defensible
+by room. "The app cut racks from 26 to 18" is a claim that needs 8 defensible
 evidence trails behind it, and the register plus the audit log is where they live.
 
-**The artefact this loop actually wants** is a trend across versions: NER count,
+**The artefact this loop actually wants** is a trend across versions: Rack count,
 worst serving distance, total cable length, areas out of coverage — one row per
 analysed version. It is nothing more than the scenario summaries already stored,
 lined up by document version. It is also the single most useful thing to put in
@@ -311,7 +311,7 @@ named, dated, immutable, holding the full register state — serves both
 *"revision 3, issued to VNI on 12 October"* and *"design freeze, 15 November"*.
 Build it once.
 
-After a freeze, a newly arriving VDB can still be **checked** against the
+After a freeze, a newly arriving design book can still be **checked** against the
 baseline, and must not be able to change it. That check is the acceptance test:
 *did the final drawing match the frozen design?* It is the same reconciliation
 screen as section 4, pointed at the freeze snapshot instead of at a change
@@ -330,7 +330,7 @@ request.
    rejected assets (5a).
 6. **Reconciliation screen** with the four verdicts, plus renumbering as a
    reported event.
-7. **Removal impact analysis** ("what happens if I delete this NER") and the
+7. **Removal impact analysis** ("what happens if I delete this rack") and the
    **cross-version trend**.
 8. **Project freeze** on top of `RegisterSnapshot`.
 

@@ -52,6 +52,90 @@ package.
 
 ---
 
+## 5.5.0 — 2026-11-05
+
+MINOR: the 900-series master plans (a whole level on one 340 × 220 in sheet)
+import fast and zoom sharp.
+
+- **Import and rack placing read the strokes one at a time.** A master plan
+  draws about 330,000 paths; the import held them all and indexed every thin
+  stroke to follow the labels' arrows (4.2 GB for VDD_900; 37 minutes on the
+  work laptop, which had to page). Now only the paths that can be the rack
+  block symbol or a label's arrow are kept (`domain/linework.py`,
+  `pdf_ingest.page_strokes_and_rooms`). A leader walk that reaches the edge
+  of the window kept around its label widens it, then reads the sheet whole:
+  what is found never differs from the full read. Checked on every page of
+  the 34 real books: the paths path for path, the extraction field for field.
+- **Very large sheets in tiles.** A sheet whose longest side is above about
+  38 in (6,000 px at the viewer's 2.2 px per point) is drawn from tiles the
+  server cuts at the zoom on screen (`app/page_tiles.py`,
+  `components/PageTiles.tsx`), kept on disk with the composite maps (not in a
+  backup or a project package; deleted with the book or the project). PDF.js
+  does not open such a book at all. It opens fitted to the window; `Fit`
+  fits it again; the wheel zooms out further than before (0.005). Ordinary
+  sheets (every book so far is 34 × 22 in) are drawn as before.
+- The page picture endpoint draws at most 6,000 px on the longest side (a
+  master plan at 110 dpi would have been 37,000 px).
+- Tiles are drawn by a **renderer process** of their own, which keeps the
+  open books and their display lists; the server only waits on a pipe. MuPDF
+  holds Python's interpreter lock for the whole of a tile, so slow tiles drawn
+  in the server held every other request (sign-in 32 s, `/healthz` 37 s
+  behind a burst on a pathological sheet). A book that crashes MuPDF takes the
+  renderer down, not the server; the next tile starts a new one.
+  `NER_INPROCESS=1` draws in the server, as the import does.
+- Tile requests wait on threads of their own (`api/tile_runner.py`), are
+  guarded without holding a database connection, and a request gone before
+  its turn gets nothing drawn; the sign-in check of every request runs off
+  the event loop and `/healthz` answers on it. Forty tiles asked at once used
+  to hold every database connection and every thread (found by the
+  independent testers on the first and third candidates).
+- Cancelling an import or *Place racks* while a sheet's strokes are read no
+  longer crashes the server when the book is read in-process (an exception
+  cannot cross MuPDF's C++ loop: it is now held and raised after it), and a
+  cancelled *Place racks* no longer records "0 rooms found" for the book.
+- A book or project being removed serves no tile; a tile request already
+  waiting can no longer open the deleted PDF again or write its tiles back.
+- **Fifth candidate (independent tester on the fourth):** a tile already on
+  disk is read at once instead of waiting behind tiles still to draw (23 s
+  before); a tile whose screen was closed before its turn is not drawn (the
+  sign-in middleware is plain ASGI, so the disconnect reaches the route); the
+  renderer gets 45 s per tile, then it is replaced and that tile is refused
+  for 2 minutes, so a hung renderer no longer holds every tile and every
+  removal; removals go ahead of waiting tiles; a renderer that dies idle is
+  reaped. The isolated reader sets its import path before it reads its
+  request (on a Mac started by `start.command` the marked PDF failed with
+  `No module named 'app'`). Viewer: the "Rendering the page…" notice no
+  longer sticks when coming back to a tiled sheet, the first view fits the
+  window's own size, and an ordinary sheet after a tiled one opens fitted.
+- **Sixth candidate:** a tile stopped by the 45 s limit, and the 2 minutes
+  after it, answer *503* with the seconds left; the viewer says "Part of this
+  sheet is slow to draw — trying again in N s" and asks again by itself. A
+  removal takes the tile lock once (it took it three or four times, so a book
+  deleted while someone else's tiles hung waited 88 s); a renderer that
+  already started answering is not killed; a composite map being removed
+  serves no tile.
+- **Seventh candidate:** the wait after a slow tile doubles each time the same
+  tile misses again (2, 4, 8, then 15 minutes at most); the "slow to draw"
+  notice goes away when the next try fails for another reason; a composite
+  map being removed or rebuilt is never composed again by a waiting tile; a
+  project's folders are moved aside under the tile lock and deleted after it,
+  so other projects' tiles no longer wait for the deletion.
+- **Eighth candidate:** two tests give the real renderer its real deadline
+  (starting it on Windows takes more than their 1 s); the start-up clean-up
+  takes only folders named with ASCII digits and never follows or reports a
+  link; the manual says a composite map being rebuilt shows no new picture
+  until the build ends.
+- The progress bar of an import and of *Place racks* moves while a sheet is
+  read, with the stage in words ("reading page 2 of 4: 180,000 strokes
+  read"); it used to move once per sheet, and a master plan sheet takes tens
+  of seconds.
+- **Public edition: the last internal words.** Rack names in the help text
+  read `RKc_01.1` / `RK_20.1`, the wireless line of a demand list space is
+  called that, room codes of the project the tool was built for are no longer
+  named, and the reasons, notes, evidence and errors the server writes reach
+  the screens in the public words too (`app/public_words.py`). Portuguese
+  says *o rack*, not *a rack*.
+
 ## 5.4.0 — 2026-11-05
 
 MINOR: the application is **RackReach**. The public edition speaks in general
@@ -204,7 +288,7 @@ PATCH: *Separate* on the racks screen takes a marker out of its group for good.
 - **The separated marker becomes a rack of its own, named by you.** *Separate*
   asks for the new rack's name (empty gives the next free name in the sequence);
   the group's own name and any other rack's name are refused (409). Seen on
-  3 Nov 2026: RKc_10.1 drawn in two rooms by its TEC code; after *Separate* and a
+  3 Nov 2026: RKc_10.1 drawn in two rooms by its room code; after *Separate* and a
   rename to RK_34.1, the marked PDF still drew RKc_10.1 under RK_34.1.
 - **Nothing of the old rack stays where the separated marker is.** When the
   separated marker held the group's registered position, the position moves to
@@ -213,7 +297,7 @@ PATCH: *Separate* on the racks screen takes a marker out of its group for good.
   duplicate list never offers to merge them again. A start-up pass records the
   separations made before this version.
 - **The code stays with the group.** A later *Place racks from the drawing* no
-  longer gives the group's TEC code to the separated rack, so the other sheets
+  longer gives the group's room code to the separated rack, so the other sheets
   that print the code keep joining the group (one rack per code, the oldest).
 
 ## 5.2.1 — 2026-11-03
@@ -339,7 +423,7 @@ PATCH: what the complementary QA of 5.1.0 found (31 Oct 2026). No screen and no 
 shape changes; the first start writes one more pass (below).
 
 - **D34 (medium) - a drawing taken off a sheet came back by its code.** *Place racks
-  from the drawing* draws a rack whose TEC code it reads on another sheet there too.
+  from the drawing* draws a rack whose room code it reads on another sheet there too.
   5.1.0 held only the spot a drawing was taken from (12 m), so the same code printed
   elsewhere on that sheet drew the rack back; and a drawing deleted with *Delete only
   this marker* before 5.1.0 had no spot at all - on an aquatics project the rack deleted
@@ -370,7 +454,7 @@ first start.
   and with it the only record that the room the sheet prints there is that rack. The
   next *Place racks from the drawing* created a new rack on it (RK_38.1 and RK_43.1
   on a port project and an arena project, 0.0 m from where RK_21.1 and RK_35.1 had been drawn), or,
-  for a room with a TEC code, drew the rack back on the sheet it was taken off
+  for a room with a room code, drew the rack back on the sheet it was taken off
   (a stadium project). The rack now keeps those spots (`released_spots`, both where the
   marker was and where it was first put); *Place racks* takes a room or a team
   annotation read there as that rack: nothing created, nothing drawn back; a removed
@@ -506,7 +590,7 @@ The database gains three columns, added on the first start (`elements.origin_x`,
   first put — the room the drawing prints, for a rack read off the book — and
   the "is there a rack here already?" test asks both that spot and where the
   marker is now. On the VKK project a rack dragged 16.5 m from a bare
-  `TEC.010` came back as a new critical rack at the `TEC.010` on the next run,
+  a room code came back as a new critical rack at the room code on the next run,
   and nothing flagged it. The first start fills the spot of existing markers
   from the move history in the audit log (a marker never moved: where it is).
 - **Wi-Fi points side by side, and a button for those already stacked (A2,
@@ -766,7 +850,7 @@ PDF and read them as the number of access points requested. The symbols were
 never that: they were drawn one per unit of the demand list's wireless line, and only
 in the spaces found on the drawings. They now say what they mean.
 - *Place Wi-Fi from the demand list* (was *Place APs from the demand list*) draws **one**
-  Wi-Fi point per demand list space with a wireless (DWISA) line whose room is on a
+  Wi-Fi point per demand list space with a wireless (wireless) line whose room is on a
   drawing, whatever the quantity. The quantity stays on the demand list line, and in
   the workbook, as the space's wireless ports; the number of access points
   comes from the wireless design. Ports are unchanged: since 4.0.0 a drawn
@@ -850,7 +934,7 @@ comes back on any of the twelve projects" was not true — on VCC and
 VGG five rooms removed on 8 Oct came back.
 
 - **A rack removed before 2.18.1 stays removed (D17).** A room removed before
-  its markers were kept, and with no TEC code, had nothing to hold its place:
+  its markers were kept, and with no room code, had nothing to hold its place:
   *Place racks from the drawing* re-created it from its rack block symbol at the
   very spot (VCC: RK34, RK36, RK37, RK40 came back as RK_35.1–38.1; VGG:
   RK27 as RK_33.1). The position the rack list keeps for a removed room now
@@ -889,7 +973,7 @@ no export changes shape and no project has to be re-imported.
   new marker now joins the removed rack, hidden; `Restore` brings it back there
   too. And a rack block symbol inside a room the same run read by its code or
   label (within the 12 m same-place rule) is that room, not a second rack — the
-  VBB symbols beside TEC.010-006 and TEC.010-021 were what came back as
+  VBB symbols beside two room codes were what came back as
   RK_35.1–37.1. Replayed on the 16 Oct backup: no removed room comes back on
   any of the twelve projects.
 - **Codes with a three-digit sub-index are read whole (D2).**
@@ -976,29 +1060,29 @@ Marcelo, 16 Oct 2026, after another analysis found the VBB workbook
 disagreeing with itself — 576 vs 519 ports on a rack, 842 vs 839 requested,
 13/8/2 vs 14/9 indoor/outdoor: *"O rack tem que bater em todas as planilhas."*
 And: *"AP não é um produto do demand list. Mantenha somente a informação que já existe
-que é o produto DWISA e o número de AP placed nos desenhos deveria seguir
+que é o produto wireless e o número de AP placed nos desenhos deveria seguir
 rigorosamente esta qtde, e para os lugares não encontrados no design book, não fazer
 nada, mantendo-os como pending - no rack. Clicar duas vezes no botão place AP
 ou Place rack não pode duplicar o que já foi feito."*
 
 - **One set of numbers in every sheet.** *Coverage figures* was computed apart
   from the analysis (the raw demand list total as requested, only spaces as "on a
-  Rack"), the *Summary* from the engine (demand list − the DWISA lines with drawn
+  Rack"), the *Summary* from the engine (demand list − the wireless lines with drawn
   access points + one port per point). Both now read the same run, and the
   *Summary* gains *Ports on no rack yet (pending)* and *of which wireless
-  (DWISA)*: requested = on a rack + pending, on *Summary*, *Coverage figures*,
+  (wireless)*: requested = on a rack + pending, on *Summary*, *Coverage figures*,
   *Demand and coverage* (`Counted ports`), *Demand by rack* (grand total and rack
   groups) and *Racks and ports* (`Ports assigned`).
-- **The demand list is the only source of ports.** The space's `DWISA` line counts on
+- **The demand list is the only source of ports.** The space's `wireless` line counts on
   the space, on the rack that serves the space, whether or not its access
   points are drawn. A drawn access point takes no port: it is a position,
   measured to the rack of its space so the 90 m rule is checked where the AP
   is; one tied to no demand list space counts nothing. *Demand by rack* lists demand list lines
   only — no `AP` rows; *Racks and ports* keeps `Wireless points` (APs the rack
-  reaches, a count) and `of which wireless ports` (now the DWISA ports of the
+  reaches, a count) and `of which wireless ports` (now the wireless ports of the
   spaces it serves). This replaces the 2.5.0 rule ("five drawn + the demand list's one
-  = five"): a space that needs five APs says so in its DWISA quantity.
-- **`Place APs from the demand list` places exactly the DWISA quantity** of every
+  = five"): a space that needs five APs says so in its wireless quantity.
+- **`Place APs from the demand list` places exactly the wireless quantity** of every
   matched space (`Qty`; the port count when there is none). Spaces with no room
   on the drawing get nothing and stay *Pending — no rack*. Running it again adds
   only what is missing and takes back extra points it placed itself (newest
@@ -1077,7 +1161,7 @@ sheets in his order and colours; a Mac installer next to the Windows one.
   to equipment room, and **`Notes`** last — the notes written on the racks screen. The
   TOTAL row and the formulas follow the columns.
 - **Space code on the racks screen:** a new column, filled from the code the
-  drawing prints beside the rack (`TEC.010-001`), editable; it is what goes to
+  drawing prints beside the rack (a room code), editable; it is what goes to
   column C.
 - **Sheet order and tab colours:** Summary, Demand and coverage (yellow), demand list
   by rack (red), Racks and ports (yellow), Wireless points (yellow), Exceptions
@@ -1106,7 +1190,7 @@ stays valid.
 
 - **`Place APs from the demand list`** — a new card on the Scale screen, beside
   *racks from the drawing* (`POST /projects/{id}/wireless/place-from-teap`).
-  For every demand list space that requests wireless (the `DWISA` line, or any line
+  For every demand list space that requests wireless (the `wireless` line, or any line
   the importer reads as wireless) and whose room is on a drawing — matched by
   the matcher or tied by hand, not rejected — it places **one wireless point
   per wireless port**, beside the room's label (a little below and to the
@@ -1206,11 +1290,11 @@ the analysis changed.
   hand). **The non-critical series starts at 20** (`SEQUENCE_START`) — v2.0
   moved it from 21. `SEQUENTIAL_NAME_RX` reads the older forms the register
   holds (`RKc01`, `critical rack 01`, `rack-21`) and the venue-prefixed ones
-  (`VHH_NERc_01.1`) as the same series when it picks the next number. Nothing
+  (`VHH_RKc_01.1`) as the same series when it picks the next number. Nothing
   already named is renamed.
 - **`Full name` on *Racks and ports*** (last column, L): the project's venue
-  code in front of the rack name — `VHH_NERc_01.1` — as the sheet writes it
-  (`VVV_NERc_02.1`; on a cluster each venue uses its own code). A name that
+  code in front of the rack name — `VHH_RKc_01.1` — as the sheet writes it
+  (`VVV_RKc_02.1`; on a cluster each venue uses its own code). A name that
   already carries a code is not prefixed twice; a project with no venue code
   gets the name alone (`reports.ner_full_name`; `export_workbook(venue_code=)`).
   The other columns, the formulas and the TOTAL row are where they were.
@@ -1348,16 +1432,16 @@ Tests: `tests/test_installer_2160.py` (6) — 823 passed.
 ## 2.15.0 — 2026-10-01
 
 **The racks the 3.x design books state** (Marcelo, 1 Oct 2026, with the VCC
-Softball book and the VDD / VEE / VBB AAM workbooks). The design team no
-longer prints `TEC.003.xx.xxx` at every rack; the placing step now reads what
+Softball book and the VDD / VEE / VBB space programme workbooks). The design team no
+longer prints a room code at every rack; the placing step now reads what
 the new books do print, on top of everything it already read:
 
-- **New codes.** `TEC.010-xxx` is a *Network Equipment Rack - Critical* and
-  `TEC.020-xxx` a *Non-Critical* one (also the bare `TEC.010` / `TEC.020`), as
-  the AAM workbooks file them. `TEC.003.01 / .02` still read for the 2.x
-  books; `TEC.003-001` (the Mobile Equipment Room in the new taxonomy) is not
+- **New codes.** a room code is a *Network Equipment Rack - Critical* and
+  a room code a *Non-Critical* one (also the bare room codes), as
+  the space programme workbooks file them. a room code still read for the 2.x
+  books; a room code (the Mobile Equipment Room in the new taxonomy) is not
   a rack. Only a code with a room number identifies one room across sheets —
-  a bare `TEC.010` printed on two sheets is two racks.
+  a bare room code printed on two sheets is two racks.
 - **The label without "(rack)".** *Network Equipment / Rack - Non-Critical* (two
   lines, no bracket, no arrow — the label sits in the room) is a rack room; a
   lone *Rack - Critical* line with no *Network Equipment* over it is not.
@@ -1381,7 +1465,7 @@ the new books do print, on top of everything it already read:
   no text to announce them), 1–3 s per sheet, and reports its progress page
   by page.
 - Measured on `VCC_400_SBL_O.pdf` (83 pages): 4 coded rooms + 19 symbols =
-  23 racks, no false positive; the book has no "(rack)" and no `TEC.003` rack.
+  23 racks, no false positive; the book has no "(rack)" and no room-coded rack.
 
 Tests: `tests/test_ner_sources_2150.py` (23 new) — 817 passed.
 
@@ -1445,10 +1529,10 @@ exported PDF should carry nothing "que não é de origem do arquivo".
   loses its spaces and any demand list tie to them; a page unticked gets its spaces
   read off the book; the matching runs once. The viewer's tick stays. A key
   plan yields no space at all on import, and the *Spaces* switch is off there.
-- **Space names read the accommodation-matrix (AAM) way.** The space code (`ACR.001`,
+- **Space names read the accommodation-matrix (space programme) way.** The space code (`ACR.001`,
   `BRS.052.02-001`) first, as before; on a sheet with no codes, a room-name
   label is a space only when it reads as a known space name — the bundled
-  AAM list (`backend/app/domain/aam_names.txt`, from the VHH and VBB AAM
+  Space programme list (`backend/app/domain/aam_names.txt`, from the VHH and VBB space programme
   sheets; VNI and MPS left out) plus the project's demand list names — at 80 %
   `token_sort_ratio` or a whole known name inside the label; the `L9m (31ft)`
   length tag is stripped. A start-up pass (`spaces-2.14.0`, once per book)
@@ -1456,8 +1540,7 @@ exported PDF should carry nothing "que não é de origem do arquivo".
   space on a key plan, and lists them in the audit log; a space a demand list line
   is tied to is never touched.
 - **racks placed as a step, not at import.** An import reads what the book
-  says about its racks — the team's own annotations, the `TEC.003.01 / .02`
-  rooms, the "Network Equipment Rack" labels — and places nothing.
+  says about its racks — the team's own annotations, the coded rooms, the "Network Equipment Rack" labels — and places nothing.
   *Place racks from the drawing* on the Scale screen
   (`POST /projects/{id}/ners/place-from-drawing`) creates them in that order,
   never on a key plan, never within 12 m of a rack already on the sheet;
@@ -1558,8 +1641,7 @@ zero."*
   (422) and disabled in the viewer. `POST /pages/{n}/key-plan` and the viewer's
   `Key plan` box correct a title block read wrong.
 - **racks from the drawing** (`domain/drawn_rooms.py`, `services.adopt_drawn_rooms`).
-  On every page that is not a key plan: `TEC.003.01` (critical) /
-  `TEC.003.02` (non-critical) in any spelling (`-05`, `.005`, bare), or the
+  On every page that is not a key plan: the critical and the non-critical room codes in any spelling (`-05`, `.005`, bare), or the
   `Network Equipment Rack - Critical / Non-Critical` label with no code.
   The leader is walked segment by segment to its arrowhead and the rack goes at
   the tip (one path or several; on a stacked label the arrow leaving the rack's
@@ -1946,7 +2028,7 @@ length.
 the rule for rooms whose area is not in the table: the sheet numbers
 Critical rack.01–07 by area and then runs on in sequence (critical rack.08, critical rack.09) with no
 area. The app only said *no number — add it to the convention*, which on
-the event's demand list (SPT, TEC, SPP, LOG…) was nearly every rack. `naming.suggest`
+the event's demand list was nearly every rack. `naming.suggest`
 now hands such rooms the next free number from `fallback_start` (default
 8, editable as *Sequence for the rest starts at*; 0 turns it off), critical
 rooms first and then by ports, in one sequence for both prefixes so a
@@ -2151,7 +2233,7 @@ desconfirmar caso eu tenha feito algo errado."*
 ## 2.5.0 — 2026-09-21
 
 **A drawn access point stands in for the wireless port the demand list requests.**
-Seen on VAA: 88 of its 110 demand list spaces carry a `DWISA` line (*Wireless
+Seen on VAA: 88 of its 110 demand list spaces carry a `wireless` line (*Wireless
 Connection - Shared Internet Access (SIA) Wireless LAN*) with one network
 port — the access point's uplink — counted in the space total by rule A. A
 wireless point drawn in the viewer took one port on the rack that reaches it,

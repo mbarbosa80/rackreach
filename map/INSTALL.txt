@@ -1,5 +1,5 @@
 ===============================================================================
-  RACKREACH MAP  -  version 1.1.0
+  RACKREACH MAP  -  version 1.2.0
   Installation on a Windows computer
 ===============================================================================
 
@@ -16,7 +16,7 @@
   Open either in a browser; the application does not need to be running.
 
   ON A MAC (Apple Silicon, macOS 11 or later): the package is
-  ner-map-analyzer-1.1.0-macos-arm64.zip. Unzip it, open Terminal, type "bash "
+  ner-map-analyzer-1.2.0-macos-arm64.zip. Unzip it, open Terminal, type "bash "
   and drag setup.command into the window, press Return. No administrator
   password. Details: docs/INSTALL.html, section "Installing on a Mac".
 

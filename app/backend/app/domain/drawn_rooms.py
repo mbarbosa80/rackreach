@@ -291,46 +291,61 @@ def leader_geometry(drawings: list[dict], rot) -> tuple[list[Arrowhead], Segment
     """
     arrows: list[Arrowhead] = []
     segs = Segments()
+    # An unturned sheet (most of them): its points are already where the text
+    # is, and MuPDF's identity transform gives them back unchanged — skipping
+    # it saves a Python call per point, 19 s on a master plan (5.5.0).
+    if tuple(rot) == (1.0, 0.0, 0.0, 1.0, 0.0, 0.0):
+        def pt(p):
+            return (float(p.x) + 0.0, float(p.y) + 0.0)        # -0.0 comes out 0.0, as there
+    else:
+        def pt(p, _rot=rot):
+            return _pt(p, _rot)
     for d in drawings:
-        items = d.get("items") or []
-        if not items:
-            continue
-        rect = d.get("rect")
-        if d.get("fill") is not None:
-            # Three sides, or two and a closing stroke (``closePath``).
-            if rect is None or len(items) not in (2, 3, 4) or any(it[0] != "l" for it in items):
-                continue
-            if max(rect.width, rect.height) > 14.0 or max(rect.width, rect.height) < 1.2:
-                continue
-            verts: list[tuple[float, float]] = []
-            for it in items:
-                for p in (it[1], it[2]):
-                    q = _pt(p, rot)
-                    if not any(math.dist(q, v) < 0.3 for v in verts):
-                        verts.append(q)
-            if len(verts) != 3:
-                continue
-            # The tip is the vertex farthest from the middle of the other two.
-            best = None
-            for i, v in enumerate(verts):
-                a, b = [w for j, w in enumerate(verts) if j != i]
-                mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-                dist = math.dist(v, mid)
-                if best is None or dist > best[0]:
-                    best = (dist, v, mid)
-            arrows.append(Arrowhead(tip=best[1], base=best[2]))
-            continue
-        if (d.get("width") or 0) > 1.2:
-            continue
-        colour = tuple(round(c, 2) for c in (d.get("color") or ()))
-        for it in items:
-            if it[0] != "l":
-                continue
-            a, b = _pt(it[1], rot), _pt(it[2], rot)
-            if math.dist(a, b) < 0.3:
-                continue
-            segs.add(a, b, colour)
+        _leader_path(d, pt, arrows, segs)
     return arrows, segs
+
+
+def _leader_path(d: dict, pt, arrows: list[Arrowhead], segs: Segments) -> None:
+    """What one path adds to the leader geometry: an arrowhead, its thin
+    straight strokes, or nothing."""
+    items = d.get("items") or []
+    if not items:
+        return
+    rect = d.get("rect")
+    if d.get("fill") is not None:
+        # Three sides, or two and a closing stroke (``closePath``).
+        if rect is None or len(items) not in (2, 3, 4) or any(it[0] != "l" for it in items):
+            return
+        if max(rect.width, rect.height) > 14.0 or max(rect.width, rect.height) < 1.2:
+            return
+        verts: list[tuple[float, float]] = []
+        for it in items:
+            for p in (it[1], it[2]):
+                q = pt(p)
+                if not any(math.dist(q, v) < 0.3 for v in verts):
+                    verts.append(q)
+        if len(verts) != 3:
+            return
+        # The tip is the vertex farthest from the middle of the other two.
+        best = None
+        for i, v in enumerate(verts):
+            a, b = [w for j, w in enumerate(verts) if j != i]
+            mid = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
+            dist = math.dist(v, mid)
+            if best is None or dist > best[0]:
+                best = (dist, v, mid)
+        arrows.append(Arrowhead(tip=best[1], base=best[2]))
+        return
+    if (d.get("width") or 0) > 1.2:
+        return
+    colour = tuple(round(c, 2) for c in (d.get("color") or ()))
+    for it in items:
+        if it[0] != "l":
+            continue
+        a, b = pt(it[1]), pt(it[2])
+        if math.dist(a, b) < 0.3:
+            continue
+        segs.add(a, b, colour)
 
 
 def _inside(p: tuple[float, float], box: tuple[float, float, float, float]) -> bool:
@@ -341,8 +356,24 @@ def _inside(p: tuple[float, float], box: tuple[float, float, float, float]) -> b
 _LEADER_MAX_SEGMENTS = 8
 
 
+class OutOfReach(Exception):
+    """A leader walk left the part of the sheet whose strokes were read
+    (5.5.0): the caller reads the whole sheet and walks it again."""
+
+
+#: How far around every place the walk looks (points) the strokes must have
+#: been read: the corner search (``Segments.at``) looks one grid cell (2 pt)
+#: beyond its tolerance, the arrow test 2 pt.
+_REACH_MARGIN = 5.0
+
+
+def _covered(box: tuple[float, float, float, float], reach) -> bool:
+    return any(r[0] <= box[0] and r[1] <= box[1] and box[2] <= r[2] and box[3] <= r[3]
+               for r in reach)
+
+
 def follow_leader(box: tuple[float, float, float, float], arrows: list[Arrowhead],
-                  segs: Segments) -> Optional[tuple[tuple[float, float], float]]:
+                  segs: Segments, reach=None) -> Optional[tuple[tuple[float, float], float]]:
     """The tip of the arrow a leader carries from the label ``box``.
 
     ``box`` is the label's text (x0, y0, x1, y1). A leader starts within a few
@@ -352,11 +383,21 @@ def follow_leader(box: tuple[float, float, float, float], arrows: list[Arrowhead
     a label stacked over another room's name carries two arrows, one from
     each line, so ``box`` must be the NER lines only, and the leader starting
     nearest the text wins. Returns ``(tip, distance from the text)`` or None.
+
+    ``reach`` (5.5.0): when the strokes were read only around the labels,
+    the rectangles (display coordinates) they were read over. Every place the
+    walk looks at must lie inside one of them, with a margin; where it would
+    not, :class:`OutOfReach` is raised rather than an answer the whole sheet
+    might contradict.
     """
     zone = (box[0] - _ANCHOR_PAD_X, box[1] - _ANCHOR_PAD_Y,
             box[2] + _ANCHOR_PAD_X, box[3] + _ANCHOR_PAD_Y)
     cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
     inner = (box[0] + 1.5, box[1] + 1.5, box[2] - 1.5, box[3] - 1.5)
+    m = _REACH_MARGIN
+    if reach is not None and not _covered((zone[0] - m, zone[1] - m, zone[2] + m, zone[3] + m),
+                                          reach):
+        raise OutOfReach(box)
 
     def arrow_at(p):
         for a in arrows:
@@ -376,6 +417,9 @@ def follow_leader(box: tuple[float, float, float, float], arrows: list[Arrowhead
             cur = far
             hit = None
             for _ in range(_LEADER_MAX_SEGMENTS):
+                if reach is not None and not _covered(
+                        (cur[0] - m, cur[1] - m, cur[0] + m, cur[1] + m), reach):
+                    raise OutOfReach(box)
                 hit = arrow_at(cur)
                 if hit is not None:
                     break
@@ -450,7 +494,8 @@ SYMBOL_IN_ROOM_PT = 40.0
 
 
 def find_drawn_rooms(items: list, arrows: list[Arrowhead], segs: "Segments",
-                     *, excluded=lambda it: False, symbols=()) -> list[DrawnRoom]:
+                     *, excluded=lambda it: False, symbols=(),
+                     follow=None) -> list[DrawnRoom]:
     """Every NER room the sheet states, with its position.
 
     ``items`` are the page's text lines (``pdf_ingest.TextItem``, display
@@ -459,12 +504,21 @@ def find_drawn_rooms(items: list, arrows: list[Arrowhead], segs: "Segments",
     ``symbols`` are the NER block symbols ``ner_symbol.find_ner_symbols``
     found on the page.
 
+    ``follow(box)`` (5.5.0) is what finds the arrow a label's leader carries;
+    by default :func:`follow_leader` over ``arrows`` and ``segs``. Which
+    labels are read never depends on it — only where each room is placed —
+    so a first pass with a ``follow`` that answers None lists every label
+    box a leader would be looked for at (:func:`leader_boxes`).
+
     A TEC code is read with the lines stacked over it (the room label and
     its area tag) as one label; a room label with no code under it is read with
     the criticality line under it. A label's lines are never read twice. A
     symbol becomes a room of its own unless it sits inside a room already
     read — then it is that room.
     """
+    if follow is None:
+        def follow(box, _a=arrows, _s=segs):
+            return follow_leader(box, _a, _s)
     live = [it for it in items if not excluded(it)]
     used: set[int] = set()
     rooms: list[DrawnRoom] = []
@@ -500,7 +554,7 @@ def find_drawn_rooms(items: list, arrows: list[Arrowhead], segs: "Segments",
         if words is not None and words != critical:
             evidence.append(f"the label says '{text}', the code says "
                             f"{'critical' if critical else 'non-critical'} — the code decides")
-        found = follow_leader(_box(stack), arrows, segs)
+        found = follow(_box(stack))
         if found:
             (x, y), dist = found
             evidence.append(f"placed at the tip of the label's arrow, {dist:.0f} pt from the label")
@@ -547,7 +601,7 @@ def find_drawn_rooms(items: list, arrows: list[Arrowhead], segs: "Segments",
             evidence.append("the label does not say whether the rack is critical")
         else:
             evidence.append(f"read as {'critical' if critical else 'non-critical'} from the label")
-        found = follow_leader(_box(lines), arrows, segs)
+        found = follow(_box(lines))
         if found:
             (x, y), dist = found
             evidence.append(f"placed at the tip of the label's arrow, {dist:.0f} pt from the label")
@@ -583,3 +637,16 @@ def find_drawn_rooms(items: list, arrows: list[Arrowhead], segs: "Segments",
         out.append(r)
     out.sort(key=lambda r: (r.page, round(r.y / 20.0), r.x))
     return out
+
+
+def leader_boxes(items: list, *, excluded=lambda it: False) -> list[tuple[float, float, float, float]]:
+    """The label boxes :func:`find_drawn_rooms` would look for a leader at,
+    in order (5.5.0) — read from the text alone, before any stroke."""
+    boxes: list[tuple[float, float, float, float]] = []
+
+    def record(box):
+        boxes.append(box)
+        return None
+
+    find_drawn_rooms(items, [], Segments(), excluded=excluded, follow=record)
+    return boxes

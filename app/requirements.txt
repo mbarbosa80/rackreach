@@ -1,4 +1,4 @@
-# NER Spatial Coverage Analyzer — Python runtime
+# RackReach — Python runtime
 # Python 3.11 or newer.
 #
 # Lower bounds only: these are the versions the application was built and tested

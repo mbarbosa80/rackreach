@@ -25,9 +25,12 @@ from typing import Callable, Iterable, Optional
 import pymupdf
 
 from .aam_vocab import SpaceVocabulary, strip_length_tag
-from .drawn_rooms import (find_drawn_rooms, is_illustrative_title, is_key_plan_title,
+from .drawn_rooms import (OutOfReach, find_drawn_rooms, follow_leader, is_illustrative_title,
+                          Segments, is_key_plan_title, leader_boxes,
                           leader_geometry)
-from .ner_symbol import find_ner_symbols
+from .linework import stream_drawings
+from .ner_symbol import (MAX_ASPECT, MAX_SIDE_PT, MAX_STROKE_FRACTION, MIN_SIDE_PT,
+                         find_ner_symbols)
 from .geometry import Point
 from .units import Scale, parse_scale_candidates
 
@@ -896,11 +899,22 @@ def read_page_spaces(path: str, pages: Iterable[int], *,
     return out
 
 
-def _page_drawn_rooms(page: pymupdf.Page, page_no: int, items: list[TextItem],
-                      drawings: list[dict], bands) -> list:
-    """The NER rooms one sheet states: TEC codes, rack labels and the NER
-    block symbols (2.15.0), with the legend and the title block excluded —
-    the symbol is explained in the legend and placed on the plan."""
+#: How far around a label (points) the strokes are kept for its leader to be
+#: walked (5.5.0). A walk that reaches the edge of the window is not cut
+#: short: the window is widened (``LEADER_WIDENING``) and, past the widest,
+#: the sheet is read whole and the walk done again.
+LEADER_REACH_PT = 1000.0
+#: How the window grows when a walk reaches its edge, before the sheet is
+#: read whole: the walks on the real books looked up to 900 pt from their
+#: label (along walls and long lines; the arrows they found were within 50).
+LEADER_WIDENING = (1, 4)
+
+#: Leader windows that had to be widened, or the sheet read whole, because a
+#: walk reached their edge (counted per process, for the tests).
+leader_fallbacks = 0
+
+
+def _page_exclusions(page: pymupdf.Page, items: list[TextItem], bands):
     strip = _title_block_strip(items, page.rect.width, page.rect.height)
 
     def _excluded(it, _bands=bands, _strip=strip):
@@ -910,10 +924,193 @@ def _page_drawn_rooms(page: pymupdf.Page, page_no: int, items: list[TextItem],
         zones = list(_bands) + ([_strip] if _strip is not None else [])
         return any(x0 <= x <= x1 and y0 <= y <= y1 for x0, y0, x1, y1 in zones)
 
+    return _excluded, _excluded_point
+
+
+def _page_drawn_rooms(page: pymupdf.Page, page_no: int, items: list[TextItem],
+                      drawings: list[dict], bands) -> list:
+    """The NER rooms one sheet states: TEC codes, rack labels and the NER
+    block symbols (2.15.0), with the legend and the title block excluded —
+    the symbol is explained in the legend and placed on the plan.
+    ``drawings`` is the whole ``page.get_drawings()``."""
+    _excluded, _excluded_point = _page_exclusions(page, items, bands)
     arrows, segs = leader_geometry(drawings, page.rotation_matrix)
     symbols = find_ner_symbols(drawings, page.rotation_matrix, page_no,
                                excluded_point=_excluded_point)
     return find_drawn_rooms(items, arrows, segs, excluded=_excluded, symbols=symbols)
+
+
+def _arrowhead_shape(raw: dict) -> bool:
+    """A filled path :func:`leader_geometry` would consider as an arrowhead
+    (two to four straight sides, 1.2 to 14 pt across) — its own test."""
+    if raw.get("fill") is None:
+        return False
+    items = raw.get("items") or ()
+    if len(items) not in (2, 3, 4) or any(it[0] != "l" for it in items):
+        return False
+    r = pymupdf.Rect(raw["rect"])
+    return 1.2 <= max(r.width, r.height) <= 14.0
+
+
+def _symbol_fill(raw: dict) -> Optional[pymupdf.Rect]:
+    """The box of a filled path :func:`find_ner_symbols` would try as the NER
+    block — its own size and shape test — or None."""
+    if raw.get("fill") is None or raw.get("rect") is None:
+        return None
+    r = pymupdf.Rect(raw["rect"])
+    w, h = r.width, r.height
+    if (MIN_SIDE_PT <= w <= MAX_SIDE_PT and MIN_SIDE_PT <= h <= MAX_SIDE_PT
+            and max(w, h) / max(min(w, h), 1e-6) <= MAX_ASPECT):
+        return r
+    return None
+
+
+#: Grid cell (points) of the index of candidate NER blocks.
+_BLOCK_CELL = 32.0
+
+
+def page_strokes_and_rooms(page: pymupdf.Page, page_no: int, items: list[TextItem], bands,
+                           *, rooms: bool = True,
+                           progress: Optional[Callable[[float, str], None]] = None
+                           ) -> tuple[list, int]:
+    """The NER rooms of one sheet and how many paths it draws (5.5.0) — the
+    same rooms :func:`_page_drawn_rooms` finds over ``page.get_drawings()``,
+    without holding every stroke of the sheet.
+
+    The paths are read one at a time (:func:`stream_drawings`), and kept only
+    where they can matter:
+
+    1. first read: the filled shapes that can be a leader's arrowhead, and
+       the thin strokes within ``LEADER_REACH_PT`` of a label a leader would
+       be looked for at; the boxes that could be the NER block are noted;
+    2. second read, only when the sheet has such boxes: those boxes and the
+       strokes drawn inside one of them — what the block's lettering is
+       compared from.
+
+    A master plan is mostly tiny strokes (lettering plotted as lines,
+    hatching): VDD_900 has 330,000 paths and keeps a few hundred.
+
+    A leader walk that reaches the edge of its window (:class:`OutOfReach`)
+    makes the window wider, then the sheet be read whole, so no room is ever
+    placed differently from a full read. ``rooms=False`` only counts the paths (a key plan: the
+    count decides whether it is a vector sheet).
+
+    ``progress(fraction of this sheet, stage)`` (5.5.0): a master plan takes
+    tens of seconds, and a bar that moved once per sheet looked stuck
+    (Marcelo, 5 Nov 2026: "a barra de progresso parece não funcionar").
+    """
+    global leader_fallbacks
+    rot = page.rotation_matrix
+
+    def say(frac: float, stage: str) -> None:
+        if progress is not None:
+            progress(min(max(frac, 0.0), 1.0), stage)
+
+    def reading(lo: float, hi: float):
+        # The total is not known before the first read: the bar closes in on
+        # ``hi`` (half-way at 100,000 paths), the stage says how many so far.
+        def tick(n: int) -> None:
+            say(lo + (hi - lo) * (1.0 - 0.5 ** (n / 100000.0)), f"{n:,} strokes read")
+        return tick
+
+    say(0.02, "reading the strokes")
+    if not rooms:
+        _, count = stream_drawings(page, keep=lambda raw: False, tick=reading(0.02, 0.95))
+        return [], count
+    _excluded, _excluded_point = _page_exclusions(page, items, bands)
+    boxes = leader_boxes(items, excluded=_excluded)
+    derot = page.derotation_matrix
+
+    def windows(R: float):
+        """The rectangles around the labels, in display coordinates (what the
+        walk checks) and in the sheet's own unrotated ones (where the raw
+        paths are)."""
+        shown = [(b[0] - R, b[1] - R, b[2] + R, b[3] + R) for b in boxes]
+        raw = []
+        for w in shown:
+            q = pymupdf.Rect(w) * derot
+            q.normalize()
+            raw.append((q.x0, q.y0, q.x1, q.y1))
+        return shown, raw
+
+    def near(rect, raw_reach) -> bool:
+        x0, y0, x1, y1 = rect
+        if x0 > x1:
+            x0, x1 = x1, x0
+        if y0 > y1:
+            y0, y1 = y1, y0
+        return any(x0 <= w[2] and w[0] <= x1 and y0 <= w[3] and w[1] <= y1 for w in raw_reach)
+
+    def leader_path(raw, raw_reach) -> bool:
+        if _arrowhead_shape(raw):
+            return bool(raw_reach)
+        return (raw.get("fill") is None and (raw.get("width") or 0) <= 1.2
+                and bool(raw_reach) and near(raw["rect"], raw_reach))
+
+    reach, raw_reach = windows(LEADER_REACH_PT)
+    block_cells: dict[tuple[int, int], list] = {}
+
+    def first(raw) -> bool:
+        block = _symbol_fill(raw)
+        if block is not None:
+            for gx in range(int(block.x0 // _BLOCK_CELL), int(block.x1 // _BLOCK_CELL) + 1):
+                for gy in range(int(block.y0 // _BLOCK_CELL), int(block.y1 // _BLOCK_CELL) + 1):
+                    block_cells.setdefault((gx, gy), []).append(block)
+        return leader_path(raw, raw_reach)
+
+    leaders, count = stream_drawings(page, first, tick=reading(0.02, 0.55))
+    say(0.6, f"{count:,} strokes read")
+
+    symbols: list = []
+    if block_cells:
+        limit = MAX_SIDE_PT * MAX_STROKE_FRACTION
+
+        def second(raw) -> bool:
+            if _symbol_fill(raw) is not None:
+                return True
+            if raw.get("fill") is not None or raw.get("color") is None:
+                return False
+            r = pymupdf.Rect(raw["rect"])
+            if max(r.width, r.height) > limit:
+                return False
+            cell = (int(r.x0 // _BLOCK_CELL), int(r.y0 // _BLOCK_CELL))
+            return any(b.contains(r) for b in block_cells.get(cell, ()))
+
+        blocks, _ = stream_drawings(
+            page, second,
+            tick=lambda n: say(0.6 + 0.25 * min(1.0, n / max(count, 1)),
+                               f"looking for the NER symbol: {n:,} of {count:,} strokes"))
+        say(0.86, "looking for the NER symbol")
+        symbols = find_ner_symbols(blocks, rot, page_no, excluded_point=_excluded_point)
+        del blocks
+    if not boxes:
+        return find_drawn_rooms(items, [], Segments(), excluded=_excluded,
+                                symbols=symbols), count
+
+    say(0.92, "following the labels' arrows")
+    # The walk in the window; past its edge, a window four times as wide
+    # (read again, one stroke at a time); past that, the whole sheet.
+    for widen in LEADER_WIDENING:
+        if widen != 1:
+            reach, raw_reach = windows(LEADER_REACH_PT * widen)
+            leaders, _ = stream_drawings(page, lambda raw: leader_path(raw, raw_reach))
+        arrows, segs = leader_geometry(leaders, rot)
+        del leaders
+
+        def follow(box, _a=arrows, _s=segs, _r=reach):
+            return follow_leader(box, _a, _s, reach=_r)
+
+        try:
+            return find_drawn_rooms(items, arrows, segs, excluded=_excluded, symbols=symbols,
+                                    follow=follow), count
+        except OutOfReach:
+            leader_fallbacks += 1
+            del arrows, segs
+    full = page.get_drawings()
+    f_arrows, f_segs = leader_geometry(full, rot)
+    del full
+    return find_drawn_rooms(items, f_arrows, f_segs, excluded=_excluded,
+                            symbols=symbols), count
 
 
 def read_drawn_rooms(path: str, *, skip_pages: Iterable[int] = (),
@@ -932,12 +1129,17 @@ def read_drawn_rooms(path: str, *, skip_pages: Iterable[int] = (),
             page_no = i + 1
             if page_no in skip:
                 continue
-            if progress is not None:
-                progress(i / max(doc.page_count, 1), f"reading the NERs drawn on page {page_no}")
+            n = max(doc.page_count, 1)
+
+            def sub(frac, stage, _i=i, _p=page_no, _n=n):
+                if progress is not None:
+                    progress((_i + frac) / _n, f"reading the NERs drawn on page {_p}: {stage}")
+
+            sub(0.0, "reading the text")
             page = doc[i]
             items = list(_iter_text_items(page, page_no))
             bands = _legend_bands(items)
-            out.extend(_page_drawn_rooms(page, page_no, items, page.get_drawings(), bands))
+            out.extend(page_strokes_and_rooms(page, page_no, items, bands, progress=sub)[0])
     finally:
         doc.close()
     return out
@@ -975,12 +1177,11 @@ def extract_drawing(path: str, *, max_pages: Optional[int] = None,
         n = doc.page_count if max_pages is None else min(doc.page_count, max_pages)
         for i in range(n):
             if progress is not None:
-                progress(i / max(n, 1), f"reading page {i + 1} of {n}")
+                progress(0.96 * i / max(n, 1), f"reading page {i + 1} of {n}")
             page = doc[i]
             page_no = i + 1
             items = list(_iter_text_items(page, page_no))
             raw_text = page.get_text("text")
-            drawings = page.get_drawings()
             images = page.get_images(full=True)
 
             info = PageInfo(
@@ -988,8 +1189,9 @@ def extract_drawing(path: str, *, max_pages: Optional[int] = None,
                 width=page.rect.width,
                 height=page.rect.height,
                 rotation=page.rotation,
-                is_vector=len(raw_text) >= text_threshold or len(drawings) > 50,
-                vector_count=len(drawings),
+                # Both settled below, once the strokes are counted.
+                is_vector=len(raw_text) >= text_threshold,
+                vector_count=0,
                 image_count=len(images),
                 char_count=len(raw_text),
                 scale_candidates=parse_scale_candidates(raw_text),
@@ -1019,11 +1221,26 @@ def extract_drawing(path: str, *, max_pages: Optional[int] = None,
             info.key_plan = is_illustrative_title(tb.title or info.sheet_title)
             pages.append(info)
 
+            # The strokes, read once (5.5.0): counted on every sheet, and
+            # searched for the NER rooms — never on a key plan (2.13.0), nor
+            # on a scanned sheet, which goes to OCR below.
+            bands = _legend_bands(items)
+            want_rooms = not info.key_plan and not (info.char_count < text_threshold
+                                                     and info.image_count)
+            def sub(frac, stage, _i=i, _n=n):
+                if progress is not None:
+                    progress(0.96 * (_i + 0.1 + 0.9 * frac) / max(_n, 1),
+                             f"reading page {_i + 1} of {_n}: {stage}")
+
+            page_rooms, count = page_strokes_and_rooms(page, page_no, items, bands,
+                                                       rooms=want_rooms, progress=sub)
+            info.vector_count = count
+            info.is_vector = info.is_vector or count > 50
+
             if info.char_count < text_threshold and info.image_count:
                 needs_ocr.append(page_no)
                 continue
 
-            bands = _legend_bands(items)
             if info.key_plan:
                 # No spaces on a sheet that only illustrates (2.14.0): its
                 # rooms are the detail sheets' rooms, drawn small.
@@ -1057,8 +1274,7 @@ def extract_drawing(path: str, *, max_pages: Optional[int] = None,
 
             # NER rooms the sheet prints (2.13.0; block symbols since 2.15.0) —
             # never on a key plan.
-            if not info.key_plan:
-                rooms.extend(_page_drawn_rooms(page, page_no, items, drawings, bands))
+            rooms.extend(page_rooms)
 
         if progress is not None:
             progress(0.97, f"consolidating {len(spaces)} spaces and {len(elements)} markers")
@@ -1080,12 +1296,20 @@ def extract_drawing(path: str, *, max_pages: Optional[int] = None,
         doc.close()
 
 
+#: The longest side of a whole-page picture, in pixels (5.5.0).
+RENDER_MAX_PX = 6000
+
+
 def render_page_png(path: str, page_no: int, dpi: int = 110) -> bytes:
     """Render one page for the viewer / for OCR."""
     doc = pymupdf.open(path)
     try:
         page = doc[page_no - 1]
-        pix = page.get_pixmap(dpi=dpi)
+        # At most 6,000 px on the longest side (5.5.0): a 340 in master plan at
+        # 110 dpi would be a 37,000 px picture, gigabytes of memory.
+        longest = max(page.rect.width, page.rect.height) or 1.0
+        dpi = min(dpi, RENDER_MAX_PX * 72.0 / longest)
+        pix = page.get_pixmap(matrix=pymupdf.Matrix(dpi / 72.0, dpi / 72.0))
         return pix.tobytes("png")
     finally:
         doc.close()

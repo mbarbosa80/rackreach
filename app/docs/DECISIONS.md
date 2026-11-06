@@ -49,10 +49,10 @@ mechanism behind "definitive results stay blocked until the scale is confirmed".
 
 ---
 
-### 5. A TER is not in `SERVING_KINDS`
+### 5. An equipment room is not in `SERVING_KINDS`
 
-The brief says a TER must be recorded and drawn but not auto-treated as a NER, and
-that the tool must not invent TER↔NER rules. Excluding it from the serving set at
+The brief says an equipment room must be recorded and drawn but not auto-treated as a rack, and
+that the tool must not invent equipment room↔rack rules. Excluding it from the serving set at
 the type level makes that structural rather than a convention someone can forget.
 
 ---
@@ -68,7 +68,7 @@ method, the score, the confidence and a human-readable reason.
 
 ### 7. Rule A–D hierarchy for port demand
 
-Exactly one rule fires per TEAP line. That is what structurally prevents double
+Exactly one rule fires per demand list line. That is what structurally prevents double
 counting — not a de-duplication pass that could be got wrong. Each line records
 which rule fired and why, and the space-level memo is reproduced in the UI and in
 the export.
@@ -134,16 +134,16 @@ justification.
 
 ---
 
-## V2 — the canonical NER register
+## V2 — the canonical rack register
 
 ### 14. `Element` is now an occurrence, `NerAsset` is the room
 
 V1 stored one `Element` per marker found on a page. That conflated two different
 things, and the conflation was silently wrong: a design book draws the same
 equipment room on the level key plan, on a zone detail and on a services overlay,
-so `Critical NER 3` became three rooms. Coverage then had three NERs where the
+so `Critical rack 3` became three rooms. Coverage then had three racks where the
 building has one, and every number downstream — port load, redundancy, "areas
-without a NER" — inherited the error.
+without a rack" — inherited the error.
 
 V2 splits them rather than replacing them:
 
@@ -159,7 +159,7 @@ still there to remigrate from.
 
 ### 15. Merge on proof, ask on suspicion, never assume
 
-Two constraints in the spec pull against each other: do not create a NER per
+Two constraints in the spec pull against each other: do not create a rack per
 occurrence (§9), and never consolidate an ambiguous pair silently (§9 again).
 `domain/consolidation.py` resolves them with one rule:
 
@@ -168,7 +168,7 @@ occurrence (§9), and never consolidate an ambiguous pair silently (§9 again).
 * agreement on **level and building** is what turns a matching label into proof,
   and only that combination merges automatically (`AUTO_MERGE_THRESHOLD = 0.97`);
 * a **conflict** on level or building is disqualifying however well the labels
-  match, and consecutive indices in one series (`NER 4` / `NER 5`) are two rooms
+  match, and consecutive indices in one series (`rack 4` / `rack 5`) are two rooms
   by definition;
 * an **unknown** level is not an agreement. The score is capped just below the
   automatic threshold so the pair becomes a question rather than an assumption.
@@ -177,8 +177,8 @@ Every automatic link is written to `ner_consolidations` with its evidence and an
 undo snapshot, so it is inspectable and reversible exactly like a manual one.
 There is no silent path.
 
-Measured on a real venue design book (`VEE`): 26 markers → 26 canonical NERs, 0
-automatic merges, 3 duplicate questions raised (`NER 5` twice, `IDF` three
+Measured on a real venue design book (`VEE`): 26 markers → 26 canonical racks, 0
+automatic merges, 3 duplicate questions raised (`rack 5` twice, `IDF` three
 times). Zero automatic merges is the right answer for that document, because only
 3 of its 34 pages carry a level — see LIMITATIONS.
 
@@ -191,7 +191,7 @@ is what the row *asks the human*, not how few rows there are.
 
 ### 17. Coverage reads the register; the marker path stays as a fallback
 
-`services.register_ners()` builds the coverage NERs from `NerAsset`, excluding
+`services.register_ners()` builds the coverage racks from `NerAsset`, excluding
 rejected, removed and consolidated rooms, and keys them `A<id>` instead of
 `E<id>`. Two deliberate choices behind it:
 
@@ -207,10 +207,10 @@ Verified on the real database: V1 path and V2 path produce byte-identical
 coverage — 2 873 spaces, 988 served, 1 885 uncovered, 21 434 ports, 23 serving
 rooms, identical status histogram.
 
-### 18. A suggested NER is a register row, not a position
+### 18. A suggested rack is a register row, not a position
 
 The solver answers a geometric question. That is not the same question as "where
-can a NER go", which needs a real room, power, cooling, access, a riser and
+can a rack go", which needs a real room, power, cooling, access, a riser and
 someone's signature. `ner_suggest.promote()` writes new sites into the register
 with `status = suggested`, `position_source = suggested`, and a bundle answering
 what §5 asks: why, which areas, total demand, longest serving distance, how many
@@ -229,7 +229,7 @@ rows can share a display name, and the code is the only thing that keeps the old
 row's reports traceable afterwards.
 
 Deleting the last marker of a room is the one path that can empty a register
-entry. It marks the room removed with a stated cause rather than leaving a NER
+entry. It marks the room removed with a stated cause rather than leaving a rack
 nothing supports, and it still does not delete the row.
 
 ---
@@ -239,15 +239,15 @@ nothing supports, and it still does not delete the row.
 Marcelo walked the whole application screen by screen and asked for it to be
 simplified. The single decision underneath most of what follows:
 
-> **A new NER is drawn by hand, in the Drawing viewer, by somebody looking at
+> **A new rack is drawn by hand, in the Drawing viewer, by somebody looking at
 > the sheet.**
 
 Three features were removed because they all did the opposite — they *proposed*
 one:
 
 * the CP-SAT **optimiser** and the As-Is vs Proposed screen;
-* **Suggest NERs for uncovered areas** on the register;
-* **Propose NERs from a VDB comments tracker**.
+* **Suggest racks for uncovered areas** on the register;
+* **Propose racks from a design book comments tracker**.
 
 The optimiser did not work badly. What it optimised — distance on a plan — is a
 fraction of what decides where an equipment room goes. Power, cooling, physical
@@ -275,7 +275,7 @@ being silently redrawn as the live state.
 Columns were removed from five screens. The test applied to each was not "is this
 true?" but **"does the answer change what the reader does?"**
 
-On TEAP × drawing, `Method`, `Confidence` and `Reason` described how the matcher
+On Demand × drawing, `Method`, `Confidence` and `Reason` described how the matcher
 arrived at its guess. The room is the right one or it is not, and that is read off
 the drawing. Confidence in particular invited the wrong move: 90% looks like
 agreement, and a base-code match at 90% is exactly the row that needs a human.
@@ -292,22 +292,22 @@ That last one is deliberate. A row that reached a conclusion from an unconfirmed
 scale or an unconfirmed match has to say so where the conclusion is, not in a
 footnote at the end of the file.
 
-### The workbook is now shaped like the TEAP
+### The workbook is now shaped like the demand list
 
-The old `Coverage` (one row per space) and `Demand detail` (one row per TEAP
+The old `Coverage` (one row per space) and `Demand detail` (one row per demand list
 line) sheets were two halves of one question, and reading them meant holding a
-space key in your head while moving between them. They are one sheet: the TEAP as
-it arrived — every space, every service, every port — with **Serving NER**,
-**NER critical** and **Distance** added on the right. That is the whole thing the
+space key in your head while moving between them. They are one sheet: the demand list as
+it arrived — every space, every service, every port — with **Serving rack**,
+**rack critical** and **Distance** added on the right. That is the whole thing the
 application exists to answer, and it now reads across a single row.
 
 ### The legend has three rows
 
 Eleven rows described states the plan in front of the reader does not contain — a
-proposed NER on a sheet with no proposals, a redundancy candidate on a study that
+proposed rack on a sheet with no proposals, a redundancy candidate on a study that
 never ran the optimiser. A legend that names shapes the reader cannot find is not
 a key, and this box is 320 pt wide, so every unnecessary row was drawing it
-covered. What is left is what a marker can be: TER, NER critical, NER
+covered. What is left is what a marker can be: Equipment room, rack critical, rack
 non-critical.
 
 ### The server is watched now, and the watchdog is also the witness
@@ -377,12 +377,12 @@ with **no** scale is skipped and named in the notice — the honest thing to do
 with it is to keep blocking its results until somebody types the ratio in the
 row, so the per-page controls stay. `POST /pages/scale/confirm-all`.
 
-### Drawing viewer — DIVA node in, calibrate and zones out
+### Drawing viewer — AV network node in, calibrate and zones out
 
-A **DIVA node** is the fourth visual-only kind, beside TER, IDF and COW: read
-off the VDB on import (`DIVA Node`, `DIVA NODE`, `DIVA Node Rack` — the word
+A **AV network node** is the fourth visual-only kind, beside equipment room, IDF and COW: read
+off the design book on import (`AV network Node`, `AV network NODE`, `AV network Node Rack` — the word
 *Rack* had to be part of the kind, not a qualifier, or one venue's book would
-have needed a dash it does not print), placed by hand with `+DIVA`, drawn in
+have needed a dash it does not print), placed by hand with `+AV network`, drawn in
 purple (his choice; the proposal colour was free), never a register row, never
 served from, no reach circle. `VISUAL_ONLY_KINDS` names the four in one place.
 
@@ -393,24 +393,24 @@ server. The trade-off is written in the manual: a sheet with no printed scale
 *and* no known ratio now has to be read off its title block.
 
 The inspector gained `Name`, `Kind` and `Delete`, because the "On the drawing"
-tab that used to carry them for every marker is gone (below). Changing a NER's
+tab that used to carry them for every marker is gone (below). Changing a rack's
 kind to a visual-only kind retires its register row with the reason on it;
-changing a visual-only marker to a NER kind creates the row at once.
+changing a visual-only marker to a rack kind creates the row at once.
 
 ### The exporter now draws every marker kind, and the legend names them
 
-Before today the marked-up PDF drew only the register — NERs — while its legend
-listed TER. A TER read off the sheet was on the screen and missing from the
+Before today the marked-up PDF drew only the register — racks — while its legend
+listed equipment room. An equipment room read off the sheet was on the screen and missing from the
 paper. `services.markers_to_draw` adds the visual-only markers to the export,
 and both legends (`notation.ts`, `reports.py`) went from four rows to seven:
-TER, NER critical, NER non critical, IDF / MDF, COW / temporary, DIVA node,
+Equipment room, rack critical, rack non critical, IDF / MDF, COW / temporary, AV network node,
 Match not confirmed. The 2 Sep rule holds — a legend names what the sheet
 shows — it is the sheet that now shows more.
 
-### NERs — two tabs became one list
+### racks — two tabs became one list
 
 "O que eu herdei ou desenhei segue o mesmo princípio." The "On the drawing" and
-"Register" tabs are one table, one row per NER, with an `Origin` flag (from the
+"Register" tabs are one table, one row per rack, with an `Origin` flag (from the
 drawing / drawn by you) as the only remaining difference. Three consequences
 that reach the data:
 
@@ -434,11 +434,11 @@ and `Removed (n) → Restore` brings everything back. The marker evidence is
 behind `Details`, per marker. Change requests (register snapshots) are gone
 from the screen; the endpoints stay.
 
-### TEAP × drawing — verified, then corrected
+### Demand × drawing — verified, then corrected
 
 He reported that every `Run matching` lost his edits. Verified on a copy of
 his real database: three projects, 154 decisions, **zero** rows changed by a
-re-run — `record_match_decision` writes the decision on the TEAP line and the
+re-run — `record_match_decision` writes the decision on the demand list line and the
 run reads it back, exactly as designed on 1 Sep. What *was* wrong was the
 message: "30 need review" after a run on a project whose thirty rows had all
 been confirmed, because `report.stats()` counts before the decisions are laid
@@ -454,7 +454,7 @@ que um nome próximo seja o local correto". Backend endpoints untouched.
 ### Demand per space — the serving-room rule, and one screen
 
 Coverage analysis folded into Demand per space (8 steps now). The rule, in
-his order: the TEAP's own column → his choice → nearest NER within the limit
+his order: the demand list's own column → his choice → nearest rack within the limit
 with free ports → the next nearest if the nearest is full → **the nearest
 anyway, flagged, if every room within reach is full** → nothing, if nothing is
 within the limit, but the row names the nearest room and its distance.
@@ -468,9 +468,9 @@ the same way. Out-of-limit stays unassigned — a cable that cannot reach
 carries no ports — with `nearest_label` / `nearest_distance_m` on the
 assignment so the screen can say so instead of printing a dash.
 
-The TEAP column: `serving_ner` is an optional canonical field. The TEAP
+The demand list column: `serving_ner` is an optional canonical field. The demand list
 v2.0 has no such column (checked); when one exists the name is resolved to a
-live NER through `normalise_label` (so `NER 03` finds `NER 3`, and an earlier
-name still finds a renamed room), becomes a pin with source "the TEAP", and a
+live rack through `normalise_label` (so `rack 03` finds `rack 3`, and an earlier
+name still finds a renamed room), becomes a pin with source "the demand list", and a
 person's choice still outranks it. Unresolved names are shown on the row, never
 silently dropped.

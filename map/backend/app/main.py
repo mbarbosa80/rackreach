@@ -21,10 +21,12 @@ from fastapi.staticfiles import StaticFiles
 
 from fastapi import Depends
 
-from .api.auth_routes import current_user, project_guard, router as auth_router
+from .api.auth_routes import current_user, project_guard, router as auth_router, tile_guard
 from .api.composite_routes import router as composite_router
+from .api.composite_routes import tiles_router as composite_tiles_router
 from .api.ner_routes import router as ner_router
 from .api.routes import router
+from .api.routes import tiles_router as page_tiles_router
 from .config import settings
 from .db import init_db
 
@@ -68,6 +70,16 @@ async def lifespan(_app: FastAPI):
             print(f"2.14.0 spaces pass: {cleaned}", flush=True)
 
     threading.Thread(target=_sheet_numbers, name="sheet-numbers", daemon=True).start()
+
+    # Folders a project removal moved aside and the server did not live to
+    # delete (rc7) - in the background: a big one takes a while.
+    def _leftovers() -> None:
+        from .services import delete_removal_leftovers
+        gone = delete_removal_leftovers()
+        if gone:
+            print(f"deleted what project removals left: {gone}", flush=True)
+
+    threading.Thread(target=_leftovers, name="removal-leftovers", daemon=True).start()
     yield
 
 
@@ -91,6 +103,10 @@ async def _validation_error(request, exc: RequestValidationError):  # noqa: ARG0
     return JSONResponse(status_code=422,
                         content={"detail": jsonable_encoder(_finite(list(exc.errors())))})
 
+# 1.2.0: the public edition's words on what the server writes (no-op in the team edition).
+from .public_words import PublicWords  # noqa: E402
+app.add_middleware(PublicWords)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
@@ -99,28 +115,53 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.middleware("http")
-async def _who_is_asking(request, call_next):
-    """Put the signed-in username where the audit log reads it (4.2.0)."""
-    from . import auth as _A
-    from . import services as _S
-    from .db import SessionLocal as _SL
-    token = request.cookies.get("ner_session")
-    name = None
-    if token:
-        db = _SL()
+class _WhoIsAsking:
+    """Put the signed-in username where the audit log reads it (4.2.0).
+
+    A plain ASGI middleware (5.5.0-rc5), not ``@app.middleware("http")``:
+    behind Starlette's BaseHTTPMiddleware ``request.is_disconnected()`` never
+    turns True, so a tile whose client had hung up was drawn anyway
+    (independent tester, rc4: 96 abandoned tiles drawn, the next one waited
+    66 s). Here the request's own ``receive`` reaches the route untouched."""
+
+    def __init__(self, app) -> None:
+        self.app = app
+
+    async def __call__(self, scope, receive, send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        from starlette.requests import HTTPConnection
+
+        from . import services as _S
+        token = HTTPConnection(scope).cookies.get("ner_session")
+        name = None
+        if token:
+            from . import auth as _A
+            from .db import SessionLocal as _SL
+
+            def _resolve():
+                db = _SL()
+                try:
+                    u = _A.resolve_session(db, token)
+                    return u.username if u is not None else None
+                except Exception:                      # noqa: BLE001 — never block a request on this
+                    return None
+                finally:
+                    db.close()
+            # Off the event loop (5.5.0): waiting here for a database connection
+            # held the loop itself, and with it every request, /healthz included.
+            from starlette.concurrency import run_in_threadpool as _rt
+            name = await _rt(_resolve)
+        reset = _S.CURRENT_ACTOR.set(name)
         try:
-            u = _A.resolve_session(db, token)
-            name = u.username if u is not None else None
-        except Exception:                              # noqa: BLE001 — never block a request on this
-            name = None
+            await self.app(scope, receive, send)
         finally:
-            db.close()
-    reset = _S.CURRENT_ACTOR.set(name)
-    try:
-        return await call_next(request)
-    finally:
-        _S.CURRENT_ACTOR.reset(reset)
+            _S.CURRENT_ACTOR.reset(reset)
+
+
+# Added last, so outermost — where the decorator put it before.
+app.add_middleware(_WhoIsAsking)
 
 
 # Sign-in and the data notice are reachable without an account; everything else
@@ -132,10 +173,16 @@ app.include_router(router, prefix="/api", dependencies=_guarded)
 app.include_router(ner_router, prefix="/api", dependencies=_guarded)
 # 5.0.0: the composite map — one map per level of a book, built on request.
 app.include_router(composite_router, prefix="/api", dependencies=_guarded)
+# The tiles of the viewer and of the composite map (1.2.0), guarded without
+# holding a database connection while they are drawn.
+app.include_router(page_tiles_router, prefix="/api", dependencies=[Depends(tile_guard)])
+app.include_router(composite_tiles_router, prefix="/api", dependencies=[Depends(tile_guard)])
 
 
 @app.get("/healthz")
-def healthz() -> dict:
+async def healthz() -> dict:
+    # async (5.5.0): answered on the event loop, never queued behind work
+    # waiting for a thread of the pool.
     from app.version import __build__
     return {"status": "ok", "version": settings.version, "build": __build__}
 
