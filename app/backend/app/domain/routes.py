@@ -443,7 +443,10 @@ class RouteNetwork:
                 # segments the two ends join by label (5.6.0, R4-5), then
                 # where they join and the path itself - never the order
                 # anything was registered in.
-                order = (round(path_len + stub_a + stub_b, 9), tuple(str(v) for v in verticals),
+                # Link labels as a person reads them, numbers by value: R2
+                # before R10 (5.7.0; 5.6.0-rc2 did it for tray labels only).
+                order = (round(path_len + stub_a + stub_b, 9),
+                         tuple(natural_key(str(v)) for v in verticals),
                          natural_key(ja.get("label", "")), natural_key(jb.get("label", "")),
                          round(ja["x"], 6), round(ja["y"], 6), round(jb["x"], 6), round(jb["y"], 6),
                          tuple(path))
@@ -657,12 +660,30 @@ def _project(px: float, py: float, ax: float, ay: float, bx: float, by: float
     return t, ((px - qx) ** 2 + (py - qy) ** 2) ** 0.5
 
 
+def _segment_order(seg: RouteSegment) -> tuple:
+    """A traced segment's place in :func:`build_network`: by sheet, label as
+    a person reads it, then where it is drawn (both ends, smaller first)."""
+    a = (float(seg.a.x), float(seg.a.y))
+    b = (float(seg.b.x), float(seg.b.y))
+    return (seg.page, natural_key(str(getattr(seg, "label", "") or "")), min(a, b), max(a, b),
+            str(getattr(seg, "kind", "") or ""))
+
+
 def build_network(segments: Iterable[RouteSegment],
                   verticals: Iterable[VerticalLink],
                   scale_for_page: dict[int, Scale],
                   snap_units: float = 2.0) -> RouteNetwork:
     net = RouteNetwork(snap_units=snap_units)
     net.page_scales = dict(scale_for_page)
+    # A fixed order, never the order things were drawn in (5.7.0, tester
+    # R2-7): two tray ends on one snap node gave the node the coordinates of
+    # whichever tray was registered first, and distances moved by about
+    # 0.1 m with the drawing order.
+    segments = sorted(segments, key=_segment_order)
+    verticals = sorted(verticals, key=lambda v: (natural_key(str(v.label or v.key)),
+                                                  str(v.key), v.lower.page, v.upper.page,
+                                                  v.lower.x, v.lower.y, v.upper.x, v.upper.y,
+                                                  float(v.length_m)))
     for seg in segments:
         sc = scale_for_page.get(seg.page)
         if sc is None:

@@ -52,6 +52,154 @@ package.
 
 ---
 
+## 5.7.0 — 2026-11-17
+
+MINOR: a few distances of real projects can change (two trays at the same
+distance), the racks carry their notes onto the screens and, when asked, onto
+the PDFs, and a sheet whose title states no level can be given one. Every
+open finding of the 5.3.0 - 5.6.0 testers is fixed.
+
+**Notes on the racks** (Marcelo, 16 Nov 2026)
+- The Drawing viewer's Inspector has the rack's `Notes` - the same note as on
+  the racks screen. With the pointer over a rack that has a note, the note
+  shows beside it, on every sheet. On the composite map a rack with a note
+  carries a small pale dot, its note shows under the pointer and is written
+  in the selection panel.
+- Reports: **with rack notes** (off by default) prints each rack's note under
+  its name on the marked-up PDF and on the composite map PDF - wrapped, never
+  cut, on every sheet the rack is drawn on. A note can cover part of the
+  drawing: the copy with notes is for the analyst's meetings, the one without
+  for the design team. Only the note a person wrote is printed, never the
+  application's own sentences about the rack.
+- Drawing viewer: a **Notes (n)** button (off each time the viewer opens)
+  keeps every rack's note written under it on the sheet, to the left of the
+  Rack when it would run off the sheet (Marcelo, 17 Nov 2026).
+- A note keeps its en dashes, curly quotes, euro signs and arrows on both
+  PDFs (Helvetica embedded as a Unicode font, about 30 KB per file), and a
+  note near the edge of a sheet is moved in, or above the rack, rather than
+  cut (rc1 tester, T1-2 / T1-3). Characters Helvetica has no shape for (a
+  check mark, a double arrow, Chinese, Japanese, Korean) are written in
+  MuPDF's built-in fallback font, embedded only in a file whose notes need it
+  (about 3.5 MB); a character no font has (an emoji) prints as "?", never as
+  nothing. A note taller than the sheet is written wider, then smaller,
+  down to 2.5 pt - never cut (rc2 tester, T2-5 / T2-6). Only a rack's note is
+  printed: never one written on an equipment room, an IDF or a reference.
+- The Drawing viewer's `Notes (n)` counts the racks with a note on the sheet
+  open, a note is moved left or above the rack at any edge of the sheet, and
+  a register rack drawn "not on the sheet" shows its note too (rc2 tester,
+  F-1 to F-3).
+
+**The level of a sheet by hand**
+- On the Scale screen, a detail sheet whose title states no level has a
+  `level?` box: `02`, `B1`, `L3` or `LEVEL 03` become `LEVEL 02`, `LEVEL B1`...;
+  empty takes it back. A single digit is written as the titles write it
+  (`2` → `LEVEL 02`), and levels are compared without the word in front or
+  the leading zeros, so `LEVEL 2` and `LEVEL 02` are one level (rc1 tester,
+  T1-4) - but a minus after a space is a sign: `LEVEL -1` (a basement, typed
+  or on a title) is not level 1 (rc2 tester, T2-3). The composite map groups
+  sheets by the same rule (`LEVEL 2` from a title and a typed `2` are one
+  map, `LEVEL 02`; a map built under the old spelling is kept, T2-4). A
+  level with a control character, or typed on a key plan, is refused. The racks whose own sheet it is and that have no level
+  take it. A level the title states is never changed (409), and a level typed
+  by hand is kept by every start-up pass. `POST /pages/{page}/level`, audited
+  `page.level_set`; the page carries `level_source` (`manual`).
+
+**Traced routes** (owner's decisions of 16 Nov 2026)
+- **Two trays at the same distance, the shorter route not counting:** the
+  space is measured along the shortest route that counts, as through shafts
+  and risers; the shorter one is named in the notes. It went to a straight
+  line although the other tray's route counted.
+- Equal shaft and riser connections are ordered by link label as a person
+  reads it (R2 before R10), as the trays were in 5.6.0.
+- The network no longer depends on the order trays and links were drawn in:
+  two tray ends on one snap node took the coordinates of the tray drawn first
+  and distances moved by about 0.1 m (tester R2-7).
+- (Criticality enforced, API only) "Same floor first" keeps the
+  critical-rated floor racks within the limit in a straight line when the
+  routed floor racks are all non-critical; a rack upstairs took the space.
+- "Both full" was already "same floor first" since 5.5.0 (rc5): nothing to
+  change.
+
+**Fixed (testers' findings)**
+- rc1 tester T1-1: *with rack notes* printed nothing on a project that had
+  been analysed - the marked-up PDF is drawn from the saved analysis, which
+  did not carry the notes. The notes are now read as they are when the PDF
+  is made.
+- T1-5: an export that cannot be saved because the last one is still open
+  (PDF reader, Excel) says so - it was worded as a damaged book. In rc3 the
+  same for a project of several books and for the composite map PDF, and a
+  book that cannot be READ is never called a locked export (rc2 tester,
+  T2-1, T2-2, T2-8).
+- A CSV demand list takes the venue filter as a workbook does, and a CSV of several
+  venues with no filter is refused the same way (rc1 tester's risk).
+- T1-6: the 5.7.0 start-up repair of demand list values keeps an explicit port count
+  when only the quantity is wrong, and adds the project's growth margin back;
+  a count worked out from the quantity is kept as the import keeps it (T2-7).
+- T1-7: a demand list filtered on the venue NAME is not called "another venue" on
+  the *Reconciliation* sheet.
+- T1-8: a rack that leaves the register because its last marker was unlinked
+  says "unlinked", not "linked to another rack".
+- T1-9: when a title block read at start-up states a level, it replaces a
+  level typed by hand on that sheet (the title is the drawing's word), is
+  marked as read off the drawing, and the racks that took the typed level
+  follow it.
+- T1-10: a level typed on a sheet of the second book no longer reaches a rack
+  of the first book on the same page number; the start-up pass that takes
+  back a guessed level follows the same rule.
+- R5-3: a book imported under the current space rules got, at the next start,
+  every label of it as a space. The start-up pass leaves it alone; a book it
+  already filled goes through the rules once more, once (owner's decision:
+  those labels stay out).
+- F4: linking a rack's last marker to another rack (API only) left a live rack
+  with no marker; it now leaves the register, restorable.
+- F5: a new Wi-Fi point given a deleted point's number inherited its drags
+  and was listed as moved by you; a creation or a deletion starts a point's
+  history.
+- F6: the workbook's *Reconciliation* says *another venue (XXX) - not on
+  these drawings* for lines of other venues, instead of *no room on the
+  drawing*.
+- F8: a book that cannot be marked up answers in words (422 / job message
+  naming the file), not a bare 500.
+- F9: `/overlaps` and the escalation list answer 422 with the reason when
+  there is no demand list (API only; `/overlaps` reads criticality on every project
+  since 5.6.0 - tester R2-5).
+- F10: the venue filter ignores case, spaces, dots and dashes ("S Y N" is
+  SYN) and the import counts the rows of other venues it left out.
+- F11: a Wi-Fi decision on a space gone from the demand list names it in words, not
+  as a raw key; values over 100,000 are a demand list data error.
+- R7-F6: a rack placed by hand takes the rename rules (80 characters, no
+  control character, no leading = + - @).
+- R7-F7: a formula-like name reads as typed in the workbook (Excel's text
+  mark), with no apostrophe printed.
+- R7-F8: a count is written with the digits 0-9, a sign and a decimal point:
+  "1_5", "5e1", other scripts' digits and TRUE are demand list data errors.
+- R7-F9: values an earlier version stored that the import now calls a data
+  error are counted as 0 at the next start, once, with the data error.
+- R7-F10: two lines of 1e308 no longer sum to infinity (more than 100,000 is
+  a data error).
+- R7-F11: the workbook's *Exceptions* sheet lists the demand list data errors first.
+- R2-1: the criticality alert does not say "counted as served" any more: a
+  row with an alert can be over capacity. The counter reads *criticality
+  alerts*.
+- The Exceptions step's seven tiles sit in one row.
+
+**Not changed in this version, and why**
+- Composite maps are still drawn in the server process, and the build of a
+  network of thousands of shafts still takes about 30 s: no real project has
+  either problem (0 shafts on every project), and both are larger changes than
+  a minor release should carry.
+- The misaligned progress box of *Place racks from the drawing* (no screenshot
+  yet): checked on the screen during the release gate.
+- On a sheet with a /UserUnit (the VBB 700 series, 1.19) a note's text is a
+  little larger than its box, as the rack's name already was; on a unit of 2
+  the lines would overlap. No book has one above 1.19.
+- In the PDF of several books the note font is embedded once per book.
+
+**Tests**: tests/test_release_570.py, test_ner_notes_570.py,
+test_page_level_570.py, test_name_only_restart_570.py, test_backlog_570.py, the
+composite map note tests, test_rc2_570.py, test_rc3_570.py, and the two
+independent testers' files test_tester_570.py and test_tester_570rc2.py.
+
 ## 5.6.0 — 2026-11-06
 
 MINOR: results of real projects can change. Routes through shafts and risers

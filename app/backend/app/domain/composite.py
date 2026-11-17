@@ -120,14 +120,28 @@ def sheet_prefix(sheet_number: Optional[str]) -> Optional[str]:
     return m.group(1) if m else None
 
 
+def same_group(stored_key: str, key: str) -> bool:
+    """A map built before rc3 under a level key as the title wrote it
+    (``LEVEL 2``) is the map of the group now keyed ``LEVEL 02``."""
+    if stored_key == key:
+        return True
+    if re.match(r"^(LEVEL|LVL|FLOOR|NIVEL|NÍVEL)\b", str(stored_key or ""), re.I):
+        from .consolidation import normalise_level
+        return normalise_level(stored_key) == key
+    return False
+
+
 def group_key(sheet_number: Optional[str], level: Optional[str]) -> str:
     """The group a detail sheet belongs to: its drawing-number prefix, else its
     level, else one group for every sheet that says neither."""
     pfx = sheet_prefix(sheet_number)
     if pfx:
         return pfx
-    if level:
-        return level.strip().upper()
+    if level and level.strip():
+        # One rule for a level read off a title and one typed by hand
+        # (rc3, T2-4): "LEVEL 2" and a typed "2" are one group, "LEVEL 02".
+        from .consolidation import normalise_level
+        return normalise_level(level)
     return "(no level)"
 
 
@@ -169,7 +183,8 @@ def plan_groups(pages: list[dict]) -> list[dict]:
 def group_label(key: str, level: Optional[str]) -> str:
     """``412 · LEVEL 02`` — the drawing-number prefix and the level, the way
     the design team names it."""
-    if level and level.strip().upper() != key:
+    from .consolidation import level_key
+    if level and level.strip().upper() != key and level_key(level) != level_key(key):
         return f"{key} · {level}"
     return key
 
@@ -545,8 +560,9 @@ def align_book(pdf_path: str, pages: list[dict], only: Optional[list[str]] = Non
     groups = []
     for g in plan:
         level = g["level"]
-        keys = ([k for k in keys_all if level and k.level == level]
-                + [k for k in keys_all if not level or k.level != level])
+        from .consolidation import level_key
+        same = (lambda k: bool(level) and level_key(k.level) == level_key(level))
+        keys = [k for k in keys_all if same(k)] + [k for k in keys_all if not same(k)]
         grid = _key_grid(book, keys[0]) if keys else None
         sheets: dict[int, dict] = {}
         report = []

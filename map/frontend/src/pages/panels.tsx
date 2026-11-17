@@ -568,7 +568,24 @@ export function ScalePanel({ ctx }: { ctx: Ctx }) {
                     {keyOf(pg) ? "KEY" : ""}{pg.number in ticks && ticks[pg.number] !== !!pg.key_plan ? " *" : ""}
                   </label>
                 </td>
-                <td className="small">{pg.sheet_number ? <span className="mono">{pg.sheet_number}</span> : null}{pg.sheet_number && pg.sheet_title ? " · " : ""}{pg.sheet_title || (pg.sheet_number ? "" : "—")}{pg.level ? ` · ${pg.level}` : ""}</td>
+                <td className="small">{pg.sheet_number ? <span className="mono">{pg.sheet_number}</span> : null}{pg.sheet_number && pg.sheet_title ? " · " : ""}{pg.sheet_title || (pg.sheet_number ? "" : "—")}{pg.level && pg.level_source !== "manual" ? ` · ${pg.level}` : ""}
+                  {/* The level by hand (5.7.0) - only where the drawing
+                      title states none, never over what it states. */}
+                  {!keyOf(pg) && (!pg.level || pg.level_source === "manual") && (
+                    <input className="level-input" key={`lv${pg.number}-${pg.level || ""}`}
+                           defaultValue={pg.level || ""} placeholder={t("level?")}
+                           title={t("The drawing title states no level for this sheet. Type it (02, B1, LEVEL 03…) so NERs of the same level are recognised as one; empty takes it back.")}
+                           onBlur={async (e) => {
+                             const v = e.target.value.trim();
+                             if (v === (pg.level || "")) return;
+                             try {
+                               const r = await api.setPageLevel(p.id, pg.number, v);
+                               await ctx.reload();
+                               ctx.notify(`${t("Page")} ${sheetNo(p, pg.number)}: ${r.level || t("no level")}`);
+                             } catch (err: any) { ctx.notify(err.message, "err"); }
+                           }} />
+                  )}
+                </td>
                 <td className="small mono">
                   {(pg.candidates || []).map((c: any) => c.label).join(", ") || "—"}
                 </td>
@@ -744,6 +761,9 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
   //  the plan. Turning it off drops the box and the swatches — never the limits,
   //  the scale or the disclaimer, which move to a thin footnote instead.
   const [legend, setLegend] = useState(true);
+  //: NER notes printed on the PDFs (5.7.0 / Map 1.3.0): off by default - a
+  //: note may cover the drawing; it is for the meeting, not the design team.
+  const [withNotes, setWithNotes] = useState(false);
   const reportJob = useJob();
   if (!p) return null;
 
@@ -772,7 +792,7 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
 
   const make = async () => {
     try {
-      await reportJob.start(() => api.report(p.id, "pdf", true, legend, false), async (j) => {
+      await reportJob.start(() => api.report(p.id, "pdf", true, legend, false, withNotes), async (j) => {
         if (j.state === "error") { ctx.notify(j.error, "err"); return; }
         if (j.state !== "done") return;
         await finish(j.result, "pdf");
@@ -783,7 +803,7 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
   //: The composite map PDF (5.0.0), beside the marked-up one, never instead.
   const makeComposite = async () => {
     try {
-      await reportJob.start(() => api.compositeReport(p.id, legend), async (j) => {
+      await reportJob.start(() => api.compositeReport(p.id, legend, withNotes), async (j) => {
         if (j.state === "error") { ctx.notify(j.error, "err"); return; }
         if (j.state !== "done") return;
         await finish(j.result, "pdf");
@@ -810,6 +830,12 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
             <input type="checkbox" checked={legend} style={{ width: "auto" }}
                    onChange={(e) => setLegend(e.target.checked)} />
             {t("with legend")}
+          </label>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 0 }}
+                 title={t("Each NER's note (NERs screen or Drawing viewer) printed under its name on both PDFs, wrapped, on every sheet the NER is on. Off by default: a note can cover part of the drawing.")}>
+            <input type="checkbox" checked={withNotes} style={{ width: "auto" }}
+                   onChange={(e) => setWithNotes(e.target.checked)} />
+            {t("with NER notes")}
           </label>
           <button disabled={reportJob.busy}
                   title={t("One page per composite map built (Composite map card below): the sheets of a level as one map, every NER with its reach and the Wi-Fi points. The legend on the first page only.")}

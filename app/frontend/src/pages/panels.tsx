@@ -939,7 +939,24 @@ export function ScalePanel({ ctx }: { ctx: Ctx }) {
                     {keyOf(pg) ? "KEY" : ""}{pg.number in ticks && ticks[pg.number] !== !!pg.key_plan ? " *" : ""}
                   </label>
                 </td>
-                <td className="small">{pg.sheet_number ? <span className="mono">{pg.sheet_number}</span> : null}{pg.sheet_number && pg.sheet_title ? " · " : ""}{pg.sheet_title || (pg.sheet_number ? "" : "—")}{pg.level ? ` · ${pg.level}` : ""}</td>
+                <td className="small">{pg.sheet_number ? <span className="mono">{pg.sheet_number}</span> : null}{pg.sheet_number && pg.sheet_title ? " · " : ""}{pg.sheet_title || (pg.sheet_number ? "" : "—")}{pg.level && pg.level_source !== "manual" ? ` · ${pg.level}` : ""}
+                  {/* The level by hand (5.7.0) - only where the drawing
+                      title states none, never over what it states. */}
+                  {!keyOf(pg) && (!pg.level || pg.level_source === "manual") && (
+                    <input className="level-input" key={`lv${pg.number}-${pg.level || ""}`}
+                           defaultValue={pg.level || ""} placeholder={t("level?")}
+                           title={t("The drawing title states no level for this sheet. Type it (02, B1, LEVEL 03…) so NERs of the same level are recognised as one; empty takes it back.")}
+                           onBlur={async (e) => {
+                             const v = e.target.value.trim();
+                             if (v === (pg.level || "")) return;
+                             try {
+                               const r = await api.setPageLevel(p.id, pg.number, v);
+                               await ctx.reload();
+                               ctx.notify(`${t("Page")} ${sheetNo(p, pg.number)}: ${r.level || t("no level")}`);
+                             } catch (err: any) { ctx.notify(err.message, "err"); }
+                           }} />
+                  )}
+                </td>
                 <td className="small mono">
                   {(pg.candidates || []).map((c: any) => c.label).join(", ") || "—"}
                 </td>
@@ -1930,8 +1947,8 @@ export function DemandPanel({ ctx }: { ctx: Ctx }) {
             "near the limit (counted as served)", "var(--warn)",
             t("Served, within the limit but close to it. Counted in Served; click to see them"))}
           {((pins as any).criticality_alerts || 0) > 0 && counter("x:alert",
-            (pins as any).criticality_alerts, "criticality alerts (counted as served)", ALERT_COLOUR,
-            t("Spaces marked critical served by a NER that is not critical-rated. Counted in Served; click to see them"))}
+            (pins as any).criticality_alerts, "criticality alerts", ALERT_COLOUR,
+            t("Spaces marked critical on a NER that is not critical-rated. The alert does not change the row's status - served, or over capacity when that NER is full; click to see them"))}
           {counter("x:photographer", spaces.filter((s) => s.demand_type === "photographer").length, "photographer areas")}
           {counter("x:chosen", (pins as any).pinned || 0, "rooms chosen by you")}
           {wirelessPoints.length > 0 && (
@@ -2433,7 +2450,7 @@ export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
         <div style={{ marginTop: 10 }}>
           <JobBar job={analysisJob.job} onCancel={analysisJob.cancel} onDismiss={analysisJob.clear} />
         </div>
-        <div className="grid c6" style={{ marginTop: 12 }}>
+        <div className="grid c7" style={{ marginTop: 12 }}>
           {EX_TILES.map(([k, label, colour]) => (
             <button type="button" key={k} className={`stat tile${tile === k ? " on" : ""}`}
                     aria-pressed={tile === k}
@@ -2446,7 +2463,7 @@ export function ExceptionsPanel({ ctx }: { ctx: Ctx }) {
         </div>
         <p className="muted small" style={{ marginBottom: 0 }}>
           {t("The same rows as Demand per space, read from the last run and the choices made since. Every TEAP space that still needs you is here: with no room and no NER, out of the limit or over capacity, near the limit, or served from another level without a measured distance. Change the NER on the row, or open the row on Demand per space or on the drawing.")}{" "}
-          {t("Attention: spaces marked critical served by a NER that is not critical-rated. They are served and counted as served; the row suggests the nearest critical NER, and choosing a NER in Served by settles it.")}
+          {t("Attention: spaces marked critical on a NER that is not critical-rated. The alert does not change the row's status (served, or over capacity when that NER is full); the row suggests the nearest critical NER, and choosing a NER in Served by settles it.")}
         </p>
       </div>
 
@@ -2578,6 +2595,9 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
   //  hundred served rooms they are the picture; some readers want the markers
   //  and the verdict colours without them. Off, nothing else changes.
   const [lines, setLines] = useState(true);
+  //: NER notes printed on the PDFs (5.7.0): off by default - a note may
+  //: cover the drawing; it is for the meeting, not the design team.
+  const [withNotes, setWithNotes] = useState(false);
   const reportJob = useJob();
   if (!p) return null;
 
@@ -2610,7 +2630,7 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
   const make = async (fmt: "pdf" | "xlsx" | "csv") => {
     try {
       if (fmt === "pdf") {
-        await reportJob.start(() => api.report(p.id, fmt, true, legend, lines), async (j) => {
+        await reportJob.start(() => api.report(p.id, fmt, true, legend, lines, withNotes), async (j) => {
           if (j.state === "error") { ctx.notify(j.error, "err"); return; }
           if (j.state !== "done") return;
           await finish(j.result, fmt);
@@ -2624,7 +2644,7 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
   //: The composite map PDF (5.0.0), beside the marked-up one, never instead.
   const makeComposite = async () => {
     try {
-      await reportJob.start(() => api.compositeReport(p.id, legend), async (j) => {
+      await reportJob.start(() => api.compositeReport(p.id, legend, withNotes), async (j) => {
         if (j.state === "error") { ctx.notify(j.error, "err"); return; }
         if (j.state !== "done") return;
         await finish(j.result, "pdf");
@@ -2657,6 +2677,12 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
             <input type="checkbox" checked={lines} style={{ width: "auto" }}
                    onChange={(e) => setLines(e.target.checked)} />
             {t("with NER → space lines")}
+          </label>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 0 }}
+                 title={t("Each NER's note (NERs screen or Drawing viewer) printed under its name on both PDFs, wrapped, on every sheet the NER is on. Off by default: a note can cover part of the drawing.")}>
+            <input type="checkbox" checked={withNotes} style={{ width: "auto" }}
+                   onChange={(e) => setWithNotes(e.target.checked)} />
+            {t("with NER notes")}
           </label>
           <button disabled={reportJob.busy}
                   title={t("One page per composite map built (Composite map card below): the sheets of a level as one map, every NER with its reach and the Wi-Fi points. The legend on the first page only.")}

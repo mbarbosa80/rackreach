@@ -778,7 +778,9 @@ _BLOCK_LABELS = NUMBER_LABELS | TITLE_LABELS | {
 SHEET_NUMBER_RX = re.compile(r"^[A-Z0-9][A-Z0-9._/-]{1,30}$")
 _DATE_RX = re.compile(r"\d{1,2}/\d{1,2}/\d{2,4}")
 _LEVEL_IN_TITLE_RX = re.compile(
-    r"\b(?:LEVEL|LVL|FLOOR)\s*[-:]?\s*(\d{1,3}[A-Z]?|[A-Z]{1,2}\d{0,2})\b", re.IGNORECASE)
+    # A minus after a space is a sign: "LEVEL -1" is a basement (rc3, T2-3).
+    r"\b(?:LEVEL|LVL|FLOOR)(?:\s*:\s*|-(?=\d)|\s+)?(-?\d{1,3}[A-Z]?|[A-Z]{1,2}\d{0,2})\b",
+    re.IGNORECASE)
 
 
 @dataclass

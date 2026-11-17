@@ -806,6 +806,14 @@ export const PT: Record<string, string> = {
   "read": "ler",
   "Click to read every note": "Clique para ler todas as notas",
   "with NER → space lines": "com linhas NER → espaço",
+  "with NER notes": "com notas das NERs",
+  "Keep every NER's note written under it on the sheet. Off: the note shows when the mouse is over the NER.": "Mantém a nota de cada NER escrita abaixo dela na folha. Desligado: a nota aparece ao passar o mouse sobre a NER.",
+  "level?": "nível?",
+  "no level": "sem nível",
+  "The drawing title states no level for this sheet. Type it (02, B1, LEVEL 03…) so NERs of the same level are recognised as one; empty takes it back.": "O título do desenho não informa o nível desta folha. Digite-o (02, B1, LEVEL 03…) para que NERs do mesmo nível sejam reconhecidas como uma só; vazio desfaz.",
+  "Each NER's note (NERs screen or Drawing viewer) printed under its name on both PDFs, wrapped, on every sheet the NER is on. Off by default: a note can cover part of the drawing.": "A nota de cada NER (tela NERs ou Drawing viewer) impressa abaixo do nome nos dois PDFs, com quebra de linha, em todas as folhas onde a NER aparece. Desligado por padrão: a nota pode cobrir parte do desenho.",
+  "e.g. this NER becomes critical in the next VDB revision": "ex.: esta NER passa a crítica na próxima revisão do VDB",
+  "Shown when the mouse is over this NER on every sheet, and printed beside it on the marked-up PDF when you export it with NER notes.": "Aparece ao passar o mouse sobre esta NER em todas as folhas, e sai impressa ao lado dela no PDF marcado quando você exporta com notas das NERs.",
   "The dotted lines from each space to the NER that serves it, with the distance written on them. Turned off, the markers, the area colours and the legend stay exactly as they are.":
     "As linhas pontilhadas de cada espaço até a NER que o atende, com a distância escrita nelas. Desligadas, os marcadores, as cores das áreas e a legenda ficam exatamente como estão.",
   "Page number - drawing number from the title block": "Número da página - número do desenho lido do carimbo",
@@ -1948,14 +1956,14 @@ export const PT: Record<string, string> = {
     "crítica:",
   "out of ports":
     "sem portas livres",
-  "criticality alerts (counted as served)":
-    "alertas de criticidade (contados como atendidos)",
-  "Spaces marked critical served by a NER that is not critical-rated. Counted in Served; click to see them":
-    "Espaços marcados como críticos atendidos por uma NER que não é crítica. Contados em Atendido; clique para vê-los",
+  "criticality alerts":
+    "alertas de criticidade",
+  "Spaces marked critical on a NER that is not critical-rated. The alert does not change the row's status - served, or over capacity when that NER is full; click to see them":
+    "Espaços marcados como críticos numa NER que não é crítica. O alerta não muda o status da linha - atendido, ou acima da capacidade quando essa NER está cheia; clique para vê-los",
   "suggested: critical":
     "sugerida: crítica",
   "Attention — criticality alert":
     "Atenção — alerta de criticidade",
-  "Attention: spaces marked critical served by a NER that is not critical-rated. They are served and counted as served; the row suggests the nearest critical NER, and choosing a NER in Served by settles it.":
-    "Atenção: espaços marcados como críticos atendidos por uma NER que não é crítica. Estão atendidos e contados como atendidos; a linha sugere a NER crítica mais próxima, e escolher uma NER em Atendido por resolve.",
+  "Attention: spaces marked critical on a NER that is not critical-rated. The alert does not change the row's status (served, or over capacity when that NER is full); the row suggests the nearest critical NER, and choosing a NER in Served by settles it.":
+    "Atenção: espaços marcados como críticos numa NER que não é crítica. O alerta não muda o status da linha (atendido, ou acima da capacidade quando essa NER está cheia); a linha sugere a NER crítica mais próxima, e escolher uma NER em Atendido por resolve.",
 };

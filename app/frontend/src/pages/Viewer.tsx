@@ -219,6 +219,9 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
   const [analysisMeta, setAnalysisMeta] = useState<{ at: string | null; stale: any } | null>(null);
   const coverageJob = useJob();
   const [selected, setSelected] = useState<any | null>(null);
+  //: The note of the NER under the mouse (5.7.0): a person's note on a NER
+  //: was readable only on the NERs screen and in the workbook.
+  const [hoverNote, setHoverNote] = useState<{ text: string; x: number; y: number } | null>(null);
   const [draft, setDraft] = useState<number[][]>([]);
   /** The ruler (4.7.0): the measure being drawn, and the finished ones by
    *  sheet. Kept in the screen only — nothing is saved or exported; they go
@@ -247,6 +250,10 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
   /** The TEAP spaces a wireless point can stand in for (matched rooms). */
   const [tieOptions, setTieOptions] = useState<any[]>([]);
   const [showProposed, setShowProposed] = useState(true);
+  // The NERs' notes written on the sheet, under each NER (5.7.0-rc2,
+  // Marcelo, 17 Nov 2026): off each time the viewer opens - a note covers
+  // part of the drawing; hovering a NER shows its note either way.
+  const [showNotes, setShowNotes] = useState(false);
   const [busy, setBusy] = useState("");
   /** The register's NERs, by name — what a *NER reference is named after. */
   const [registerNers, setRegisterNers] = useState<any[]>([]);
@@ -525,6 +532,42 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
     return () => { cancelled = true; };
   }, [p?.id, indexTick]);
 
+  //: NER of the register -> the note a person wrote on it (5.7.0).
+  const noteOfAsset = useMemo(() => {
+    const m: Record<number, string> = {};
+    for (const n of registerNers) if ((n.notes || "").trim()) m[n.id] = n.notes.trim();
+    return m;
+  }, [registerNers]);
+  //: The NERs with a note on THIS sheet (rc3, F-2): the count on the Notes
+  //: button, and whether it shows at all.
+  const notesHere = useMemo(() => {
+    const ids = new Set<number>();
+    for (const e of elements)
+      if (e.ner_asset_id && !REFERENCE_KINDS.has(e.kind) && noteOfAsset[e.ner_asset_id]) ids.add(e.ner_asset_id);
+    for (const a of proposed) if (noteOfAsset[a.id]) ids.add(a.id);
+    return ids.size;
+  }, [elements, proposed, noteOfAsset]);
+  // A NER's note written on the sheet (rc2; rc3 F-1): under the NER, moved
+  // to the left or above it when it would run off the sheet. The height is
+  // estimated from the text (about 31 characters a line at 10 px).
+  const noteBox = (note: string, at: { x: number; y: number }, colour: string, dy = 9) => {
+    const W = 186;
+    const lines = note.split("\n").reduce((n, l) => n + Math.max(1, Math.ceil(l.length / 31)), 0);
+    const H = lines * 12.5 + 6;
+    let x = 10, y = dy;
+    if (pdfSize.w && at.x + (x + W) / zoom > pdfSize.w) x = -W - 6;
+    if (at.x + x / zoom < 0) x = 2 - at.x * zoom;
+    if (pdfSize.h && at.y + (y + H) / zoom > pdfSize.h) y = -H - 12;
+    if (at.y + y / zoom < 0) y = 2 - at.y * zoom;
+    return (
+      <Label x={x / zoom} y={y / zoom} listening={false}>
+        <Tag fill="#fffbe0" opacity={0.94} stroke={colour}
+             strokeWidth={0.6 / zoom} cornerRadius={2.5 / zoom} />
+        <Text text={note} width={180 / zoom} wrap="word"
+              fontSize={10 / zoom} fill="#222" padding={3 / zoom} />
+      </Label>
+    );
+  };
   const searchHits = useMemo(() => {
     const fold = (v: any) => String(v ?? "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
     const q = fold(searchQ).trim();
@@ -1256,6 +1299,13 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
             <button className={`small ${showSpaces && !isKey ? "active" : ""}`} disabled={isKey}
                     title={isKey ? t("A key plan has no spaces") : undefined}
                     onClick={() => setShowSpaces(!showSpaces)}>{t("Spaces")}</button>
+            {notesHere > 0 && (
+              <button className={`small ${showNotes ? "active" : ""}`}
+                      title={t("Keep every NER's note written under it on the sheet. Off: the note shows when the mouse is over the NER.")}
+                      onClick={() => setShowNotes(!showNotes)}>
+                {t("Notes")} ({notesHere})
+              </button>
+            )}
             {/* Shown only when there is something to toggle. Since a NER you
                 draw is a NER (its marker IS the register row), a register room
                 with a position and no marker on the sheet is a rare leftover —
@@ -1515,6 +1565,16 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
               return (
                 <Group key={`e${e.id}`} x={e.x} y={e.y} draggable={!e.locked && tool === "select"}
                        onClick={(ev) => { ev.cancelBubble = true; pick("element", e); }}
+                       onMouseEnter={(ev) => {
+                         const note = e.ner_asset_id && !REFERENCE_KINDS.has(e.kind)
+                           ? noteOfAsset[e.ner_asset_id] : undefined;
+                         if (note && !showNotes) setHoverNote({ text: note, x: ev.evt.clientX, y: ev.evt.clientY });
+                       }}
+                       onMouseMove={(ev) => {
+                         if (hoverNote) setHoverNote({ ...hoverNote, x: ev.evt.clientX, y: ev.evt.clientY });
+                       }}
+                       onMouseLeave={() => setHoverNote(null)}
+                       onDragStart={() => setHoverNote(null)}
                        onDragEnd={async (ev) => {
                          await api.patchElement(p.id, e.id, { x: ev.target.x(), y: ev.target.y() });
                          await reloadAll();
@@ -1563,6 +1623,10 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                     <Text text={e.label} fontSize={(DEMAND_KINDS.has(e.kind) ? 10 : REFERENCE_KINDS.has(e.kind) ? 14 : 12) / zoom}
                           fontStyle="bold" fill={ink} padding={2 / zoom} />
                   </Label>
+                  {showNotes && e.ner_asset_id && !REFERENCE_KINDS.has(e.kind)
+                    && noteOfAsset[e.ner_asset_id] && (
+                    noteBox(noteOfAsset[e.ner_asset_id], e, colour)
+                  )}
                 </Group>
               );
             })}
@@ -1581,6 +1645,15 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                 <Group key={`a${a.id}`} x={a.x} y={a.y}
                        draggable={!a.locked && tool === "select"}
                        onClick={(ev) => { ev.cancelBubble = true; setSelected({ type: "proposed", data: a }); }}
+                       onMouseEnter={(ev) => {
+                         const note = noteOfAsset[a.id];
+                         if (note && !showNotes) setHoverNote({ text: note, x: ev.evt.clientX, y: ev.evt.clientY });
+                       }}
+                       onMouseMove={(ev) => {
+                         if (hoverNote) setHoverNote({ ...hoverNote, x: ev.evt.clientX, y: ev.evt.clientY });
+                       }}
+                       onMouseLeave={() => setHoverNote(null)}
+                       onDragStart={() => setHoverNote(null)}
                        onDragEnd={async (ev) => {
                          try {
                            await api.moveNer(p.id, a.id, {
@@ -1604,6 +1677,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                           text={`${t("not on the sheet")} · ${a.space_code || a.space_name || ""}`}
                           fontSize={9 / zoom} fill={ink} opacity={0.85} listening={false} />
                   )}
+                  {showNotes && noteOfAsset[a.id] && noteBox(noteOfAsset[a.id], a, kind, 14)}
                 </Group>
               );
             })}
@@ -1674,6 +1748,11 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
               })}
           </Layer>
         </Stage>
+        {hoverNote && (
+          <div className="ner-note-tip" style={{ left: hoverNote.x + 14, top: hoverNote.y + 14 }}>
+            {hoverNote.text}
+          </div>
+        )}
 
         {/* The legend folds to a small tab (4.4.0), remembered per browser:
             on a laptop screen it sat over the corner of the sheet. Marcelo,
@@ -1839,6 +1918,28 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                      }
                      void patchSelected({ label: v });
                    }} />
+            {selected.data.ner_asset_id && !REFERENCE_KINDS.has(selected.data.kind) && (
+              <>
+                {/* The NER's note (5.7.0): the same note as on the NERs
+                    screen, shown on hover over the marker and, when asked
+                    for, printed on the marked-up PDF. */}
+                <label>{t("Notes")}</label>
+                <textarea rows={3} key={`nn${selected.data.id}-${noteOfAsset[selected.data.ner_asset_id] || ""}`}
+                          defaultValue={noteOfAsset[selected.data.ner_asset_id] || ""}
+                          placeholder={t("e.g. this NER becomes critical in the next VDB revision")}
+                          title={t("Shown when the mouse is over this NER on every sheet, and printed beside it on the marked-up PDF when you export it with NER notes.")}
+                          onBlur={(ev) => {
+                            const v = ev.target.value;
+                            if (v.trim() === (noteOfAsset[selected.data.ner_asset_id] || "")) return;
+                            void (async () => {
+                              try {
+                                await api.patchNer(p.id, selected.data.ner_asset_id, { notes: v.trim() });
+                                await reloadAll();
+                              } catch (err: any) { ctx.notify(err.message, "err"); }
+                            })();
+                          }} />
+              </>
+            )}
             {DEMAND_KINDS.has(selected.data.kind) && (() => {
               const a = (coverage?.assignments || []).find(
                 (x: any) => x.space_key === `WP${selected.data.id}`);

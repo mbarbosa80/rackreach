@@ -127,6 +127,10 @@ class Page(Base):
     needs_ocr: Mapped[bool] = mapped_column(Boolean, default=False)
     sheet_title: Mapped[Optional[str]] = mapped_column(String(300), default=None)
     level: Mapped[Optional[str]] = mapped_column(String(80), default=None)
+    #: "manual" when a person typed the level on the Scale screen (5.7.0)
+    #: because the title block states none; NULL when it was read off the
+    #: drawing (or is not known).
+    level_source: Mapped[Optional[str]] = mapped_column(String(16), default=None)
     building: Mapped[Optional[str]] = mapped_column(String(80), default=None)
     #: The drawing number printed in the title block (``VFF-401-CSL-O``), read
     #: from the ``DRAWING NUMBER`` label on import. NULL means never looked;

@@ -142,7 +142,7 @@ def set_enforcement(project_id: int, body: EnforceIn,
 def escalations(project_id: int, db: Session = Depends(get_session)) -> dict:
     """Rooms that must be reclassified as critical, and the spaces forcing it."""
     project = _project(db, project_id)
-    result, _ners = S.analyse(db, project)
+    result, _ners = _analyse(db, project)
     rows = C.escalations(db, project, result)
     return {
         "escalations": rows,
@@ -153,11 +153,20 @@ def escalations(project_id: int, db: Session = Depends(get_session)) -> dict:
     }
 
 
+def _analyse(db: Session, project: Project):
+    """The analysis these reports read, or 422 with the reason when there is
+    nothing to analyse yet (5.7.0, tester F9: no TEAP answered a bare 500)."""
+    try:
+        return S.analyse(db, project)
+    except S.ValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
 @router.get("/projects/{project_id}/overlaps")
 def overlaps(project_id: int, db: Session = Depends(get_session)) -> dict:
     """Overlapping rooms and which of them could actually be given up."""
     project = _project(db, project_id)
-    result, ners = S.analyse(db, project)
+    result, ners = _analyse(db, project)
     scales = S.scale_map(db, project.id)
     areas = S.collect_areas(db, project)
     by_key = {a[0].key: (a[0], a[1], a[2], a[3]) for a in areas}

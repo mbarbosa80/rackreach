@@ -329,8 +329,15 @@ def read_sheet(path: str, sheet: str, header_row: int,
         wb.close()
 
 
+def _venue_key(s: Any) -> str:
+    """A venue code or name as the filter compares it: case, spaces, dots,
+    dashes and underscores do not count ("S Y N" is SYN)."""
+    return re.sub(r"[\s.\-_/]+", "", str(s or "").strip().lower())
+
+
 def read_csv(path: str, mapping: dict[str, Optional[str]],
-             *, encoding: str = "utf-8-sig") -> TeapImport:
+             *, encoding: str = "utf-8-sig",
+             venue_filter: Optional[str] = None) -> TeapImport:
     with open(path, "r", encoding=encoding, newline="") as fh:
         sample = fh.read(8192)
         fh.seek(0)
@@ -344,7 +351,19 @@ def read_csv(path: str, mapping: dict[str, Optional[str]],
                     values={f: raw.get(h) for f, h in mapping.items() if h})
             for i, raw in enumerate(reader, start=2)
         ]
-    return TeapImport(source=path, sheet="csv", mapping=dict(mapping), rows=rows)
+    # The venue filter applies to a CSV as to a workbook (rc3): it was
+    # ignored, and every venue of the file came into the project.
+    warnings: list[str] = []
+    if venue_filter:
+        vf = _venue_key(venue_filter)
+        kept = [r for r in rows if _venue_key(r.values.get("venue_code")) == vf
+                or _venue_key(r.values.get("venue_name")) == vf]
+        if len(kept) != len(rows):
+            warnings.append(f"{len(rows) - len(kept)} row(s) of other venues left out "
+                            f"(only {venue_filter} is imported)")
+        rows = kept
+    return TeapImport(source=path, sheet="csv", mapping=dict(mapping), rows=rows,
+                      warnings=warnings)
 
 
 def profile_csv(path: str, *, encoding: str = "utf-8-sig") -> SheetProfile:

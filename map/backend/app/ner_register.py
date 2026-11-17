@@ -850,6 +850,24 @@ def set_occurrence_link(db: Session, project: Project, element: Element, *,
            justification=reason,
            payload={"element_id": element.id, "from": before,
                     "to": {"asset_id": asset_id, "status": status}})
+    # The NER the marker left, when it was its last marker (5.7.0, tester
+    # F4): it stayed in the register, live, with no marker on any sheet - a
+    # "ghost" counted in the NER list. It leaves the register as a NER whose
+    # last marker is deleted does, and Restore brings it back.
+    old_id = before["asset_id"]
+    if old_id is not None and old_id != asset_id:
+        db.flush()
+        old = db.get(NerAsset, old_id)
+        left = db.execute(select(Element.id).where(
+            Element.ner_asset_id == old_id, Element.scenario_id.is_(None)).limit(1)).first()
+        if old is not None and old.deleted_at is None and old.merged_into_id is None \
+                and not old.locked and left is None:
+            # The reason says what happened (5.7.0-rc2, T1-8): linked to
+            # another NER, or simply unlinked.
+            what = ("was linked to another NER" if asset_id is not None
+                    else "was unlinked from it")
+            soft_delete(db, project, old, actor=actor,
+                        reason=f"its last marker (element {element.id}) {what}")
     db.commit()
     return element
 

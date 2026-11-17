@@ -293,7 +293,7 @@ _INTERFACE_LOWER_CASE = {
     "tied by hand", "matched, confirmed", "matched, not confirmed", "same room",
     "tied to another room", "other level", "is on", "this space is on",
     "unticked: the room is not counted", "other level — not measured",
-    "via vertical route", "open all", "fold all", "with NER → space lines",
+    "via vertical route", "open all", "fold all", "with NER → space lines", "with NER notes", "level?", "no level",
     "matched, not yet confirmed",
     # 2.6.0 — the tiles are the filter; Undo takes a decision back
     "no room found — choose one by hand", "with no room found — choose one by hand",

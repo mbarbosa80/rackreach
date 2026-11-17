@@ -158,6 +158,11 @@ export const api = {
   //: Say whether a page is a key plan (2.13.0): only illustrative, out of every
   //  TEAP × drawing crossing. Ties to rooms there are released and the
   //  matching runs again.
+  //: The level of a page whose drawing title states none (5.7.0).
+  setPageLevel: (id: number, page: number, level: string) =>
+    req<{ page: number; level: string | null; level_source: string | null; ners: string[] }>(
+      `/projects/${id}/pages/${page}/level`,
+      { method: "POST", body: JSON.stringify({ level }) }),
   setKeyPlan: (id: number, page: number, keyPlan: boolean) =>
     req<{ page: number; key_plan: boolean; released_decisions: number; cleared_matches: number;
           matching?: any; matching_skipped?: string; counted_here: string[] }>(
@@ -276,9 +281,10 @@ export const api = {
   importAliases: (id: number, body: any) =>
     req<any>(`/projects/${id}/aliases/import`, { method: "POST", body: JSON.stringify(body) }),
   report: (id: number, fmt: "pdf" | "xlsx" | "csv",
-           background = false, legend = true, lines = true) =>
+           background = false, legend = true, lines = true, notes = false) =>
     req<any>(`/projects/${id}/reports/${fmt}` +
-             `?background=${background}&legend=${legend}&lines=${lines}`, { method: "POST" }),
+             `?background=${background}&legend=${legend}&lines=${lines}&notes=${notes}`,
+             { method: "POST" }),
   audit: (id: number) => req<any[]>(`/projects/${id}/audit`),
 
   // --- the composite map (5.0.0) -------------------------------------------
@@ -309,8 +315,9 @@ export const api = {
     }),
   undoMapMove: (id: number, auditId: number) =>
     req<any>(`/projects/${id}/composite/undo/${auditId}`, { method: "POST" }),
-  compositeReport: (id: number, legend = true) =>
-    req<any>(`/projects/${id}/composite-report?legend=${legend}`, { method: "POST" }),
+  compositeReport: (id: number, legend = true, notes = false) =>
+    req<any>(`/projects/${id}/composite-report?legend=${legend}&notes=${notes}`,
+             { method: "POST" }),
   accountAudit: () => req<any[]>(`/admin/audit`),
   templates: () => req<any[]>(`/mapping-templates`),
 

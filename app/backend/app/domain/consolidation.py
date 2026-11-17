@@ -30,6 +30,7 @@ both. A reviewer who only ever sees the reasons to merge will merge.
 from __future__ import annotations
 
 import math
+import re
 import unicodedata
 from dataclasses import dataclass, field
 from typing import Iterable, Optional, Sequence
@@ -128,6 +129,53 @@ def _norm(v: Optional[str]) -> Optional[str]:
     return s or None
 
 
+# The word in front and what separates it: "LEVEL 02", "LEVEL: 2", "LVL-3"
+# (a dash straight after the word). A minus after a space is a sign:
+# "LEVEL -1" is a basement, not level 1 (rc3, T2-3).
+_LEVEL_WORD_RX = re.compile(
+    r"^(?:(?:LEVEL|LVL|FLOOR|NIVEL|NÍVEL)\b(?:\s*:\s*|-(?=\d)|\s+)|L(?=\d))", re.I)
+_LEVEL_NUM_RX = re.compile(r"^(-?)([A-Z]?)0*(\d+)([A-Z]?)$")
+
+
+def level_key(v: Optional[str]) -> Optional[str]:
+    """A level as something to compare (5.7.0-rc2, T1-4): ``LEVEL 02``,
+    ``Level 2``, ``L2`` and ``2`` are one level. The word in front and the
+    leading zeros do not count; ``B1``, ``01M`` and ``MEZZANINE`` keep their
+    letters."""
+    s = " ".join(str(v or "").split()).upper()
+    if not s:
+        return None
+    s = _LEVEL_WORD_RX.sub("", s).replace(" ", "")
+    m = _LEVEL_NUM_RX.match(s)
+    if m:
+        s = f"{m.group(1)}{m.group(2)}{int(m.group(3))}{m.group(4)}"
+    return s or None
+
+
+#: A level typed on the Scale screen: "02", "B1", "L3", "level 2", "LEVEL 02",
+#: "Mezzanine" - kept as the drawing titles write it, "LEVEL <x>".
+_LEVEL_SHORT_RX = re.compile(
+    r"^(?:(?:LEVEL|LVL|NIVEL|NÍVEL)(?:\s*:\s*|-(?=\d)|\s+)?|L(?=\d))?(-?[A-Z]?\d{1,3}[A-Z]?)$",
+    re.I)
+
+
+def normalise_level(text: Optional[str]) -> Optional[str]:
+    """A level as the title blocks write it (``LEVEL 02``), or ``None``."""
+    v = " ".join(str(text or "").split()).strip()
+    if not v:
+        return None
+    m = _LEVEL_SHORT_RX.match(v)
+    if m:
+        # 5.7.0-rc2 (T1-4): "2" is written "LEVEL 02", as the title blocks
+        # and the drawing numbers write it, so the two read the same.
+        part = m.group(1).upper()
+        d = re.match(r"^([A-Z]?)(\d+)([A-Z]?)$", part)     # "-1" stays "-1"
+        if d and not d.group(1) and len(d.group(2)) == 1:
+            part = f"{d.group(1)}0{d.group(2)}{d.group(3)}"
+        return f"LEVEL {part}"
+    return v.upper()[:40]
+
+
 def compare(a: Candidate, b: Candidate) -> Comparison:
     """Score whether ``a`` and ``b`` are the same physical room."""
     evidence: list[str] = []
@@ -159,7 +207,7 @@ def compare(a: Candidate, b: Candidate) -> Comparison:
                           blocking="different_label")
 
     # --- level and building: what turns a matching label into proof ----------
-    lvl_a, lvl_b = _norm(a.level), _norm(b.level)
+    lvl_a, lvl_b = level_key(a.level), level_key(b.level)
     bld_a, bld_b = _norm(a.building), _norm(b.building)
 
     if bld_a and bld_b and bld_a != bld_b:

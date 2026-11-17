@@ -191,6 +191,12 @@ class SpaceDemand:
 TEAP_DATA_ERROR = "TEAP data error"
 
 
+#: The largest count a TEAP line can carry and be believed (5.7.0, tester
+#: R7-F10: two lines of 1e308 summed to infinity and the space's ports came
+#: out null). The real TEAPs top out in the hundreds.
+MAX_PLAUSIBLE = 100_000.0
+
+
 def _as_float(v) -> Optional[float]:
     if v is None:
         return None
@@ -209,6 +215,11 @@ def _as_float(v) -> Optional[float]:
         if not re.fullmatch(r"[-+]?\d{1,3}(,\d{3})+(\.\d+)?", s):
             return None
         s = s.replace(",", "")
+    # A count written as a person writes one: ASCII digits, a sign and a
+    # decimal point (5.7.0, tester R7-F8: Python also read "1_5" as 15,
+    # "5e1" as 50 and Arabic-Indic digits, without a word).
+    if not re.fullmatch(r"[-+]?(\d+(\.\d*)?|\.\d+)", s, flags=re.ASCII):
+        return None
     try:
         f = float(s)
     except ValueError:
@@ -237,7 +248,7 @@ def resolve_line(row: TeapRow, rules: DemandRuleSet,
     # 20,056 lines each) has one; this is a guard, not a rule change.
     for field, raw, val in (("quantity", row.get("quantity"), qty),
                             ("network ports", row.get("network_ports"), explicit)):
-        if raw not in (None, "") and not isinstance(raw, bool) and _as_float(raw) is None:
+        if raw not in (None, "") and _as_float(raw) is None:
             data_errors.append(f"{TEAP_DATA_ERROR}: {field} {str(raw)[:30]!r} on row "
                                f"{row.row_number} is not a number - "
                                f"{'counted as 0' if field == 'quantity' else 'ignored'}, "
@@ -245,9 +256,13 @@ def resolve_line(row: TeapRow, rules: DemandRuleSet,
         elif val is not None and val < 0:
             data_errors.append(f"{TEAP_DATA_ERROR}: negative {field} ({val:g}) on row "
                                f"{row.row_number} - counted as 0, check the TEAP")
-    if qty < 0:
+        elif val is not None and val > MAX_PLAUSIBLE:
+            data_errors.append(f"{TEAP_DATA_ERROR}: {field} {val:g} on row {row.row_number} "
+                               f"is more than {MAX_PLAUSIBLE:,.0f} - counted as 0, check "
+                               f"the TEAP")
+    if qty < 0 or qty > MAX_PLAUSIBLE:
         qty = 0.0
-    if explicit is not None and explicit < 0:
+    if explicit is not None and (explicit < 0 or explicit > MAX_PLAUSIBLE):
         explicit = 0.0
     pcode = row.get("product_code")
     pcode_s = str(pcode).strip() if pcode else None

@@ -256,6 +256,7 @@ def get_project(project_id: int, user: User = Depends(current_user),
                    "width": pg.width, "height": pg.height,
                    "rotation": pg.rotation, "is_vector": pg.is_vector,
                    "needs_ocr": pg.needs_ocr, "level": pg.level,
+                   "level_source": pg.level_source,
                    "sheet_title": pg.sheet_title,
                    # The drawing number from the title block, or "" when the
                    # sheet carries none — "Page 13 - VFF-410B8-CSL-O".
@@ -738,6 +739,27 @@ def set_key_plan(project_id: int, page_no: int, body: KeyPlanIn,
     return out
 
 
+class PageLevelIn(BaseModel):
+    #: The level, as typed ("02", "B1", "LEVEL 02", "Mezzanine"); empty
+    #: takes back a level typed before.
+    level: Optional[str] = None
+
+
+@router.post("/projects/{project_id}/pages/{page_no}/level")
+def set_page_level(project_id: int, page_no: int, body: PageLevelIn,
+                   user: User = Depends(current_user),
+                   db: Session = Depends(get_session)) -> dict:
+    """The level of a page whose drawing title states none (5.7.0), typed
+    on the Scale screen. A level read off the drawing is refused (409)."""
+    p = _project(db, project_id)
+    try:
+        return S.set_page_level(db, p, page_no, body.level, actor=user.username)
+    except S.ConflictError as exc:
+        raise HTTPException(409, str(exc)) from exc
+    except S.ValidationError as exc:
+        raise HTTPException(404, str(exc)) from exc
+
+
 class KeyPlansIn(BaseModel):
     #: page number → is it a key plan
     pages: dict[int, bool]
@@ -1067,6 +1089,14 @@ def create_element(project_id: int, body: ElementIn,
     from .. import migrate
     from .. import ner_register as R
 
+    # A NER placed by hand takes the rules a rename and Separate apply
+    # (5.7.0, tester R7-F6): no control character, no leading = + - @, at
+    # most 80 characters, a letter or a digit.
+    if body.kind in migrate.ASSET_KINDS and body.same_as_asset_id is None:
+        try:
+            body.label = R.check_display_name(body.label)
+        except R.RegisterError as exc:
+            raise HTTPException(422, str(exc)) from exc
     twin: Optional[NerAsset] = None
     if body.same_as_asset_id is not None:
         if body.kind not in migrate.ASSET_KINDS:
@@ -1546,10 +1576,18 @@ def preview_teap_venues(project_id: int, teap_id: int, body: TeapPreviewIn,
     t = db.get(TeapFile, teap_id)
     if t is None or t.project_id != p.id:
         raise HTTPException(404, "TEAP file not found")
-    if Path(t.stored_path).suffix.lower() == ".csv":
-        return {"venues": [], "csv": True}
+    is_csv = Path(t.stored_path).suffix.lower() == ".csv"
     try:
-        venues = S.preview_venues(t.stored_path, body.sheet, body.header_row, body.mapping)
+        if is_csv:
+            # A CSV lists its venues and takes the filter as a workbook does
+            # (rc3): it was imported whole, every venue in it.
+            from ..domain.teap_import import list_venues, read_csv
+            venues = [{"venue_code": c, "venue_name": n, "rows": k}
+                      for c, n, k in list_venues(read_csv(t.stored_path, body.mapping))
+                      if c or n]
+        else:
+            venues = S.preview_venues(t.stored_path, body.sheet, body.header_row,
+                                      body.mapping)
     except Exception as e:                                   # noqa: BLE001
         raise HTTPException(422, f"could not read the venue columns: {e}")
     suggested = None
@@ -1558,7 +1596,7 @@ def preview_teap_venues(project_id: int, teap_id: int, body: TeapPreviewIn,
                           if str(v["venue_code"]).strip().upper()
                           == p.venue_code.strip().upper()), None)
     return {"venues": venues, "count": len(venues), "suggested": suggested,
-            "project_venue_code": p.venue_code, "csv": False}
+            "project_venue_code": p.venue_code, "csv": is_csv}
 
 
 @router.post("/projects/{project_id}/teap/{teap_id}/import")
@@ -3045,6 +3083,7 @@ def build_report(project_id: int, fmt: str, scenario: str = "As-Is",
                  background: bool = Query(False),
                  legend: bool = Query(True),
                  lines: bool = Query(True),
+                 notes: bool = Query(False),
                  db: Session = Depends(get_session)) -> dict:
     """Build a report, in the request or as a job.
 
@@ -3062,11 +3101,25 @@ def build_report(project_id: int, fmt: str, scenario: str = "As-Is",
         def work(ctx, jdb: Session) -> dict:
             return _build_report_now(jdb, jdb.get(Project, project_id), fmt,
                                      scenario, progress=ctx.progress,
-                                     draw_legend=legend, draw_links=lines)
+                                     draw_legend=legend, draw_links=lines,
+                                     draw_notes=notes)
         return {"job_id": job_manager.submit(kind="report.build", project_id=p.id,
                                              fn=work, db=db), "background": True}
-    return _build_report_now(db, p, fmt, scenario, draw_legend=legend,
-                             draw_links=lines)
+    try:
+        return _build_report_now(db, p, fmt, scenario, draw_legend=legend,
+                                 draw_links=lines, draw_notes=notes)
+    except S.ValidationError as exc:
+        raise HTTPException(422, str(exc)) from exc
+
+
+def _output_locked(out: str, exc: BaseException, src=None) -> Optional[S.ValidationError]:
+    from ..export_guard import output_locked
+    return output_locked(out, exc, src=src)
+
+
+def _saving(out, fn, *args, **kw):
+    from ..export_guard import saving
+    return saving(out, fn, *args, **kw)
 
 
 def _marked_pdf(src: str, out: str, *, progress=None, **kw) -> list:
@@ -3076,23 +3129,45 @@ def _marked_pdf(src: str, out: str, *, progress=None, **kw) -> list:
     application (rc5) - slower is better than no PDF. Any other failure in
     the child is not tried again here: a book that crashed the child would
     crash the server."""
+    def _unreadable(exc: Exception) -> S.ValidationError:
+        # A book the child could not mark up (5.7.0, tester F8): a bare 500,
+        # or a job message naming only an exception type. Said in words, with
+        # the file, and the type kept for a diagnosis.
+        kind = getattr(exc, "kind", "") or type(exc).__name__
+        msg = str(exc)
+        if msg.startswith(f"{kind}: "):
+            msg = msg[len(kind) + 2:]
+        name = src.replace("\\", "/").rsplit("/", 1)[-1]
+        locked = _output_locked(out, exc, src=src)
+        if locked is not None:
+            return locked
+        return S.ValidationError(
+            f"{name} could not be marked up ({kind}: {msg[:160]}). The file may be "
+            f"damaged or a PDF the app cannot read: open it in a PDF reader; if it opens, "
+            f"save a copy and import that copy instead.")
+
     try:
         res = isolate.run("app.domain.reports.export_marked_pdf_job", src, out,
                           progress=progress, **kw)
     except (pickle.PicklingError, TypeError, AttributeError, isolate.IsolatedError) as exc:
         if isinstance(exc, isolate.IsolatedError) and exc.kind not in (
                 "ModuleNotFoundError", "ImportError"):
-            raise
+            raise _unreadable(exc) from exc
         logging.getLogger("ner.reports").warning(
             "marked PDF in-process (%s: %s)", type(exc).__name__, exc)
         from ..domain.reports import export_marked_pdf_job
-        res = export_marked_pdf_job(src, out, progress=progress, **kw)
+        try:
+            res = export_marked_pdf_job(src, out, progress=progress, **kw)
+        except S.ValidationError:
+            raise
+        except Exception as exc2:                       # noqa: BLE001 - FzErrorSystem too
+            raise _unreadable(exc2) from exc2
     return list(res.get("off_page") or [])
 
 
 def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                       progress=None, draw_legend: bool = True,
-                      draw_links: bool = True) -> dict:
+                      draw_links: bool = True, draw_notes: bool = False) -> dict:
     # A saved scenario is drawn from its own snapshot. Re-analysing the live
     # project here is what made the Proposed export identical to the As-Is one.
     # An analysis that something changed after is run again first (4.2.0): a
@@ -3163,6 +3238,7 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                       rules=S.distance_rules(p), scenario=scenario,
                       coverage_available=not nothing_matched,
                       draw_legend=draw_legend, draw_links=draw_links,
+                      draw_notes=draw_notes,
                       areas=S.areas_to_draw(db, p))
         if not sh.multi:
             off_page.extend(_marked_pdf(p.drawings[0].stored_path, str(out),
@@ -3197,7 +3273,7 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                 for part in parts:
                     with pymupdf.open(str(part)) as src:
                         merged.insert_pdf(src)
-                merged.save(str(out), garbage=3, deflate=True)
+                _saving(out, merged.save, str(out), garbage=3, deflate=True)
                 merged.close()
             finally:
                 for part in parts:
@@ -3228,7 +3304,7 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
 
         out = out_dir / f"{stem}_analysis.xlsx"
         with SH.naming(SH.for_project(db, p.id)):
-            export_workbook(str(out), coverage=result, ners=ners,
+            _saving(out, export_workbook, str(out), coverage=result, ners=ners,
                             demands=[_D(d) for d in demands], rules=S.distance_rules(p),
                             project_name=p.name, scale_for_page=scales,
                             source_files={d.filename: d.sha256[:12] for d in p.drawings},
@@ -3236,15 +3312,19 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                             fibre_runs=S.fibre_rule(p), match_rows=S.match_rows_for_export(db, p),
                             venue_code=p.venue_code, ner_info=S.ner_info_for_export(db, p),
                             wifi_info=S.wifi_info_for_export(db, p),
-                            sheet_cell=SH.for_project(db, p.id).cell)
+                            sheet_cell=SH.for_project(db, p.id).cell,
+                            own_venues=[t.venue_filter for t in db.execute(
+                                select(TeapFile).where(TeapFile.project_id == p.id)).scalars()
+                                if t.venue_filter])
     else:
         out = out_dir / f"{stem}_coverage.csv"
-        export_csv(str(out), result, sheet_cell=SH.for_project(db, p.id).cell)
+        _saving(out, export_csv, str(out), result, sheet_cell=SH.for_project(db, p.id).cell)
 
     S.audit(db, p.id, "report.generated", payload={"format": fmt, "file": out.name,
                                                    "off_page": len(off_page),
                                                    "legend": draw_legend,
-                                                   "lines": draw_links})
+                                                   "lines": draw_links,
+                                                   "notes": draw_notes})
     db.commit()
     body = {"file": out.name,
             "download": f"/api/projects/{p.id}/reports/download/{out.name}",

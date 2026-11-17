@@ -126,6 +126,88 @@ MARKER_LABEL_SIZE = 9.0
 #: from across a key plan (Marcelo, 14 Oct 2026); the viewer does the same.
 REFERENCE_LABEL_SIZE = MARKER_LABEL_SIZE + 2.0
 MARKER_LABEL_FONT = "hebo"          # Helvetica-Bold, one of PyMuPDF's base-14 names
+#: A NER's note on the marked-up PDF (5.7.0, asked for with "with NER
+#: notes"): the size of its text, the width it wraps at, and its font.
+NOTE_SIZE = 6.5
+NOTE_WIDTH = 150.0
+#: The note's font is Helvetica's shapes embedded as a Unicode font
+#: (5.7.0-rc2, T1-2): the base-14 "helv" is written with a Latin-1 encoding,
+#: and a note typed with an en dash, curly quotes, the euro sign or an arrow
+#: came out with "·" in their place. Embedded once per file (about 30 KB).
+NOTE_FONT = "rrnote"
+#: Characters Helvetica has no shape for (a check mark, a double arrow, CJK)
+#: are written in MuPDF's built-in fallback font (5.7.0-rc3, T2-6). It is
+#: embedded only in a file whose notes need it (about 3.5 MB, once per file);
+#: a character neither font has is written "?", never as nothing.
+NOTE_FALLBACK = "rrfall"
+_NOTE_FONT_OBJ: Optional["pymupdf.Font"] = None
+_NOTE_FALLBACK_OBJ: Optional["pymupdf.Font"] = None
+
+
+def note_font() -> "pymupdf.Font":
+    global _NOTE_FONT_OBJ
+    if _NOTE_FONT_OBJ is None:
+        _NOTE_FONT_OBJ = pymupdf.Font("helv")
+    return _NOTE_FONT_OBJ
+
+
+def note_fallback_font() -> "pymupdf.Font":
+    global _NOTE_FALLBACK_OBJ
+    if _NOTE_FALLBACK_OBJ is None:
+        _NOTE_FALLBACK_OBJ = pymupdf.Font(ordering=0)
+    return _NOTE_FALLBACK_OBJ
+
+
+def _note_font_named(name: str) -> "pymupdf.Font":
+    return note_fallback_font() if name == NOTE_FALLBACK else note_font()
+
+
+def note_runs(text: str) -> list[tuple[str, str]]:
+    """``text`` as runs of (characters, font name): Helvetica where it has
+    the character, the fallback font where only it has it, "?" otherwise."""
+    runs: list[list[str]] = []
+    for ch in str(text or ""):
+        if ch.isspace() or note_font().has_glyph(ord(ch)):
+            fn = NOTE_FONT
+        elif note_fallback_font().has_glyph(ord(ch)):
+            fn = NOTE_FALLBACK
+        else:
+            ch, fn = "?", NOTE_FONT
+        if runs and runs[-1][1] == fn:
+            runs[-1][0] += ch
+        else:
+            runs.append([ch, fn])
+    return [(t, fn) for t, fn in runs]
+
+
+def note_text_length(text: str, size: Optional[float] = None) -> float:
+    return sum(_note_font_named(fn).text_length(t, fontsize=size or NOTE_SIZE)
+               for t, fn in note_runs(text))
+
+
+def use_note_font(page: "pymupdf.Page", fallback: bool = False) -> None:
+    """Make the note's font (and, when needed, the fallback) available on
+    ``page``, once per page."""
+    names = {f[4] for f in page.get_fonts()}
+    if NOTE_FONT not in names:
+        page.insert_font(fontname=NOTE_FONT, fontbuffer=note_font().buffer)
+    if fallback and NOTE_FALLBACK not in names:
+        page.insert_font(fontname=NOTE_FALLBACK, fontbuffer=note_fallback_font().buffer)
+
+
+def place_note_box(x0: float, y0: float, w: float, h: float, page_w: float,
+                   page_h: float, *, above: Optional[float] = None,
+                   margin: float = 2.0) -> tuple[float, float]:
+    """Where a note box of ``w`` x ``h`` wanted at ``(x0, y0)`` goes so it
+    stays on the sheet (5.7.0-rc2, T1-3: "wrapped, never cut"). Pushed in
+    from the left and right edges; when it would run off the bottom it goes
+    above the marker (its bottom at ``above``) instead, and as a last resort
+    is pushed up to fit."""
+    x0 = min(max(x0, margin), max(margin, page_w - w - margin))
+    if y0 + h > page_h - margin:
+        y0 = (above - h) if above is not None and above - h >= margin \
+            else page_h - h - margin
+    return x0, max(y0, margin)
 #: A Wi-Fi point on the exported PDF (4.4.0): the sign a little larger and its
 #: name at the NERs' size, in a darker blue than the sign on a white tag —
 #: the 6.5 pt cyan name straight on the linework was reported unreadable.
@@ -483,6 +565,92 @@ def _point_on(ner: Optional[NER], page: int, near) -> Optional[Point]:
     return ner.point if ner.point.page == page else None
 
 
+def fit_note(note: str, page_w: float, page_h: float, size: float = NOTE_SIZE,
+             width: float = NOTE_WIDTH, margin: float = 2.0
+             ) -> tuple[list[str], float, float]:
+    """The note's lines, size and width so that its box fits on the sheet
+    (5.7.0-rc3, T2-5): a note taller than the sheet is first written wider,
+    up to the sheet's width, then smaller, down to 2.5 pt - never cut."""
+    avail_w = max(20.0, page_w - 2 * margin - 6)
+    avail_h = max(10.0, page_h - 2 * margin - 3)
+    width = min(width, avail_w)
+    while True:
+        lines = wrap_note(note, width=width, size=size)
+        if size * 1.25 * len(lines) <= avail_h:
+            return lines, size, width
+        if width < avail_w:
+            width = min(avail_w, width * 1.5)
+            continue
+        if size <= 2.5:
+            return lines, size, width
+        size = max(2.5, size * 0.85)
+
+
+def draw_note(sp: "PageSpace", note: str, *, top: float, above: float,
+              centre: Optional[float] = None, left: Optional[float] = None,
+              size: float = NOTE_SIZE, width: float = NOTE_WIDTH,
+              border=(0.4, 0.4, 0.4)) -> None:
+    """A NER's note on a pale box: wrapped, kept on the sheet, every
+    character drawn. Placed under the NER (``top``), centred on ``centre`` or
+    starting at ``left``; above the NER (its bottom at ``above``) when it
+    does not fit below."""
+    lines, size, width = fit_note(note, sp.width, sp.height, size, width)
+    if not lines:
+        return
+    runs = [note_runs(t) for t in lines]
+    lw = max(sum(_note_font_named(fn).text_length(r, fontsize=size) for r, fn in rl)
+             for rl in runs)
+    lh = size * 1.25
+    bw, bh = lw + 6, lh * len(lines) + 3
+    x0 = left if left is not None else (centre or 0.0) - bw / 2
+    bx0, by0 = place_note_box(x0, top, bw, bh, sp.width, sp.height, above=above)
+    use_note_font(sp.page, fallback=any(fn == NOTE_FALLBACK for rl in runs for _, fn in rl))
+    sp.box(bx0, by0, bx0 + bw, by0 + bh, color=border, fill=(1, 1, 0.88),
+           fill_opacity=0.92, width=0.4)
+    for k, rl in enumerate(runs):
+        x = bx0 + 3
+        y = by0 + 1 + lh * (k + 1) - size * 0.2
+        for r, fn in rl:
+            sp.text(x, y, r, fontsize=size, fontname=fn, color=(0.1, 0.1, 0.1))
+            x += _note_font_named(fn).text_length(r, fontsize=size)
+
+
+def wrap_note(text: str, width: float = NOTE_WIDTH, size: float = NOTE_SIZE,
+              fontname: str = NOTE_FONT) -> list[str]:
+    """A note as lines no wider than ``width`` points: broken between words,
+    a word longer than the width broken where it must be, the person's own
+    line breaks kept. Nothing is cut off - a long note is a tall box."""
+    out: list[str] = []
+
+    def w(t: str) -> float:
+        if fontname == NOTE_FONT:
+            return note_text_length(t, size)
+        return pymupdf.get_text_length(t, fontname=fontname, fontsize=size)
+
+    for para in str(text or "").replace("\r", "").split("\n"):
+        line = ""
+        for word in para.split():
+            while w(word) > width:          # a word wider than the box
+                k = len(word)
+                while k > 1 and w(word[:k]) > width:
+                    k -= 1
+                if line:
+                    out.append(line)
+                    line = ""
+                out.append(word[:k])
+                word = word[k:]
+            cand = f"{line} {word}" if line else word
+            if line and w(cand) > width:
+                out.append(line)
+                line = word
+            else:
+                line = cand
+        out.append(line)
+    while out and not out[-1]:
+        out.pop()
+    return out
+
+
 def export_marked_pdf_job(source_pdf: str, out_path: str, *,
                           page_keys: Optional[dict] = None,
                           sheet_labels: Optional[dict] = None,
@@ -525,6 +693,7 @@ def export_marked_pdf(
     strip_annotations: bool = True,
     page_key=None,
     sheet_text=None,
+    draw_notes: bool = False,
 ) -> str:
     """Write a copy of the drawing with coverage overlays and a permanent legend.
 
@@ -778,6 +947,17 @@ def export_marked_pdf(
                 sp.text(tx, ty, n.label, fontsize=size,
                         fontname=MARKER_LABEL_FONT,
                         color=LABEL_COLOURS.get(n.kind, colour))
+                # The person's note, when the export asks for it (5.7.0,
+                # Marcelo, 16 Nov 2026: off by default - it may cover the
+                # drawing; it is for the analyst to remember why, in the
+                # meeting with the design team). Under the name tag, wrapped,
+                # on every sheet the NER is drawn on.
+                note = (getattr(n, "user_note", "") or "").strip()
+                # A NER's note only - never a TER's, an IDF's or a reference's.
+                if draw_notes and note and n.kind in (ElementKind.NER_CRITICAL,
+                                                      ElementKind.NER_NONCRITICAL):
+                    draw_note(sp, note, centre=npt.x, top=ty + 5,
+                              above=npt.y - MARKER_RADIUS - 3, border=colour)
 
             if draw_legend and page_no == legend_page:
                 _draw_legend(sp, scenario, rules, scale,
@@ -1036,6 +1216,7 @@ def export_workbook(
     ner_info: Optional[dict[str, dict]] = None,
     wifi_info: Optional[dict[int, dict]] = None,
     sheet_cell=None,
+    own_venues: Optional[Iterable[str]] = None,
 ) -> str:
     """``demands`` are the TEAP spaces **in scope** — the ones that request
     ports. ``left_out`` lists the rest as ``(code, name, TEAP lines, note)`` so

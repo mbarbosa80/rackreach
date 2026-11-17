@@ -69,6 +69,7 @@ AUTO_LINK_THRESHOLD = AUTO_MERGE_THRESHOLD
 
 #: columns added to pre-existing tables, as (table, column, DDL type + default)
 ADDED_COLUMNS: list[tuple[str, str, str]] = [
+    ("pages", "level_source", "VARCHAR(16)"),
     ("elements", "ner_asset_id", "INTEGER"),
     ("elements", "link_status", "VARCHAR(20) DEFAULT 'unlinked'"),
     ("elements", "link_score", "FLOAT DEFAULT 0.0"),
@@ -1089,8 +1090,11 @@ def backfill_sheet_numbers(db: Session, project: Project) -> dict:
     from pathlib import Path
 
     from .domain.pdf_ingest import read_title_blocks
+    from .services import audit
 
     filled, blank, missing = 0, 0, 0
+    _sh = SH.for_project(db, project.id)
+    first_id = _sh.drawing_ids[0] if _sh.drawing_ids else None
     for d in project.drawings:
         pages = [pg for pg in d.pages if pg.sheet_number is None]
         if not pages:
@@ -1124,7 +1128,28 @@ def backfill_sheet_numbers(db: Session, project: Project) -> dict:
                     pg.key_plan = is_illustrative_title(tb.title)
                     pg.key_plan_source = "title"
             if tb.level:
+                # The title block is the drawing's word, and a level typed by
+                # hand was only ever for a page whose title did not say
+                # (5.7.0-rc2, T1-9): the title's level is taken, marked as
+                # read off the drawing, and the NERs that took the typed level
+                # follow it.
+                if pg.level_source == "manual" and pg.level and pg.level != tb.level:
+                    from .domain.consolidation import level_key
+                    typed = pg.level
+                    for a in db.execute(select(NerAsset).where(
+                            NerAsset.project_id == project.id,
+                            NerAsset.canonical_page == pg.number,
+                            NerAsset.deleted_at.is_(None))).scalars():
+                        if (a.canonical_drawing_id or first_id) == d.id \
+                                and level_key(a.level) == level_key(typed):
+                            a.level = tb.level
+                    audit(db, project.id, "page.level_set", entity="page", entity_id=pg.id,
+                          actor="system", payload={"from": typed, "to": tb.level,
+                                                   "source": "title_block"},
+                          justification="the drawing title states the level; the "
+                                        "level typed by hand gives way to it")
                 pg.level = tb.level
+                pg.level_source = None
             filled += 1
         # One commit per book: a 45 MB book takes half a minute to read, and
         # the work done on it must survive the process being stopped before
@@ -1138,6 +1163,11 @@ def backfill_sheet_numbers(db: Session, project: Project) -> dict:
 #: Stamped into ``Drawing.extract_summary`` so a book is read again for it
 #: exactly once, whatever the outcome.
 NAME_ONLY_PASS = "name-only-2.4.1"
+
+
+def _spaces_pass() -> str:
+    from . import services as S
+    return S.SPACES_PASS
 
 
 def backfill_name_only_spaces(db: Session, project: Project) -> dict:
@@ -1164,7 +1194,14 @@ def backfill_name_only_spaces(db: Session, project: Project) -> dict:
             continue
         has_spaces = db.execute(select(DrawingSpace.id).where(
             DrawingSpace.drawing_id == d.id).limit(1)).first() is not None
-        if has_spaces or not Path(d.stored_path).exists():
+        # A book read by the current space rules (at import since 2.14.0, or
+        # by the 2.14.0 pass) has the spaces it should have - none, when no
+        # label reads as a space name. Reading it again here with "every
+        # label is a space" added exactly the labels the import had left out
+        # at the next start (5.7.0, tester R5-3; owner's decision: they stay
+        # out).
+        read_by_current_rules = summary.get("spaces_pass") == _spaces_pass()
+        if has_spaces or read_by_current_rules or not Path(d.stored_path).exists():
             summary["name_only_pass"] = NAME_ONLY_PASS
             d.extract_summary = summary
             skipped += 1
@@ -1344,7 +1381,15 @@ def cleanup_spaces_2140(db: Session, project: Project) -> dict:
     for d in project.drawings:
         summary = dict(d.extract_summary or {})
         if summary.get("spaces_pass") == S.SPACES_PASS:
-            continue
+            # 5.7.0 (R5-3): a book the name-only start-up pass read after it
+            # had been imported under these rules got every label of it as a
+            # space. It goes through the rules once more, once.
+            if summary.get("name_only_570") or not db.execute(select(AuditLog.id).where(
+                    AuditLog.project_id == project.id, AuditLog.entity == "drawing",
+                    AuditLog.entity_id == d.id,
+                    AuditLog.action == "drawing.spaces_backfilled").limit(1)).first():
+                continue
+            summary["name_only_570"] = True
         key_pages = {pg.number for pg in d.pages if pg.key_plan}
         known = [n for n in db.execute(select(TeapSpace.space_name).where(
             TeapSpace.project_id == project.id)).scalars() if n]
@@ -1591,16 +1636,22 @@ def clear_guessed_levels(db: Session, project: Project) -> dict:
     from .models import AuditLog
 
     cleared: list[dict] = []
+    _sh = SH.for_project(db, project.id)
+    first = _sh.drawing_ids[0] if _sh.drawing_ids else None
     for pg in db.execute(select(Page).join(Page.drawing)
                          .where(Page.drawing.has(project_id=project.id))).scalars():
         lv = (pg.level or "").strip()
         if not (pg.sheet_number and lv and GUESSED_LEVEL_RX.fullmatch(lv)):
             continue
+        if pg.level_source == "manual":
+            continue                    # a person typed it (5.7.0)
         rooms = []
         for a in db.execute(select(NerAsset).where(
                 NerAsset.project_id == project.id, NerAsset.level == lv,
                 NerAsset.canonical_page == pg.number)).scalars():
-            if a.canonical_drawing_id not in (None, pg.drawing_id):
+            # A NER with no book of its own is the first book's (rc3, as
+            # set_page_level since rc2, T1-10).
+            if (a.canonical_drawing_id or first) != pg.drawing_id:
                 continue
             a.level = None
             rooms.append(a.display_name)
@@ -1614,6 +1665,59 @@ def clear_guessed_levels(db: Session, project: Project) -> dict:
                                       "of a sheet whose title block was read"))
         db.commit()
     return {"guessed_levels_cleared": len(cleared)}
+
+
+def teap_values_570(db: Session, project: Project) -> dict:
+    """TEAP lines an earlier version stored with a value the current import
+    calls a TEAP data error (5.7.0, tester R7-F9): a negative, infinite or
+    implausibly large quantity or port count kept its effect until the TEAP
+    was imported again. The line's ports become 0 and the space carries the
+    data error, as a new import would give. Lines that are right are never
+    touched, so the pass does nothing on a second start."""
+    import math
+
+    from .domain.demand import MAX_PLAUSIBLE, TEAP_DATA_ERROR
+    from .models import AuditLog
+
+    fixed_spaces: list[str] = []
+    for t in db.execute(select(TeapSpace).where(TeapSpace.project_id == project.id)).scalars():
+        lines = [dict(x) for x in (t.lines or [])]
+        notes: list[str] = []
+        for ln in lines:
+            for field, word in (("ports", "network ports"), ("qty", "quantity")):
+                # Only an explicit port count (rule A) is a TEAP value; a
+                # count worked out from the quantity is kept as the import
+                # keeps it (rc3, T2-7).
+                if field == "ports" and str(ln.get("rule") or "").upper() != "A":
+                    continue
+                v = ln.get(field)
+                if isinstance(v, bool) or not isinstance(v, (int, float)):
+                    continue
+                if not math.isfinite(float(v)) or v < 0 or v > MAX_PLAUSIBLE:
+                    notes.append(f"{TEAP_DATA_ERROR}: {word} {v!r} on row {ln.get('row')} "
+                                 f"(stored by an earlier version) - counted as 0, check the TEAP")
+                    ln[field] = 0.0
+                    # An explicit port count (rule A) stands on its own: a
+                    # new import keeps it when the quantity is wrong
+                    # (5.7.0-rc2, T1-6).
+                    if field == "qty" and str(ln.get("rule") or "").upper() != "A":
+                        ln["ports"] = 0.0
+        if not notes:
+            continue
+        t.lines = lines
+        # The project's growth margin is added back, as the import adds it.
+        total = float(sum(float(x.get("ports") or 0) for x in lines))
+        growth = float((project.demand_rules or {}).get("growth_margin_pct") or 0)
+        t.total_ports = total + total * growth / 100.0
+        t.warnings = list(t.warnings or []) + notes
+        fixed_spaces.append(t.space_key)
+    if fixed_spaces:
+        db.add(AuditLog(project_id=project.id, action="teap.values_repaired", actor="system",
+                        payload={"spaces": fixed_spaces[:200], "count": len(fixed_spaces)},
+                        justification="5.7.0: a TEAP value the import calls a data error, "
+                                      "stored by an earlier version, counted as 0"))
+        db.commit()
+    return {"teap_spaces_repaired": len(fixed_spaces)}
 
 
 def backfill_all_spaces_2140(session_factory) -> dict:
@@ -1815,6 +1919,11 @@ def run(engine: Engine, session_factory) -> dict:
                 db.rollback()
                 log.warning("4.8.0 marker-origin pass stopped on project %s: %s", project.id, exc)
             row.update(repair_canonical_positions(db, project))
+            try:
+                row.update(teap_values_570(db, project))
+            except Exception as exc:                  # noqa: BLE001 — never keep the app from starting
+                db.rollback()
+                log.warning("5.7.0 TEAP values pass stopped on project %s: %s", project.id, exc)
             row.update(clear_guessed_levels(db, project))
             row.update(flag_same_name_ners(db, project))
             try:

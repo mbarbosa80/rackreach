@@ -485,6 +485,9 @@ def test_the_marked_pdf_falls_back_when_the_child_cannot_import(monkeypatch, tmp
         raise isolate.IsolatedError("ChildExit", "the reader process ended without a result")
 
     monkeypatch.setattr(isolate, "run", crashed)
-    with pytest.raises(isolate.IsolatedError):
+    # Map 1.3.0 (5.7.0, tester F8): said in words, naming the file and the
+    # child's error, instead of a bare 500.
+    from app import services as S
+    with pytest.raises(S.ValidationError, match=r"a\.pdf could not be marked up \(ChildExit"):
         R._marked_pdf("a.pdf", str(tmp_path / "b.pdf"))
     assert calls == ["a.pdf"]

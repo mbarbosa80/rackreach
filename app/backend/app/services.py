@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from .config import settings
 from . import isolate
 from .domain import matching as M
+from .domain.consolidation import level_key
 from .domain.coverage import (NER, SERVING_KINDS, Assignment, CoverageResult, compute_coverage,
                               redundancy_candidates)
 from .domain.demand import WIRELESS_HINTS, DemandRuleSet, SpaceDemand, compute_demand
@@ -54,6 +55,10 @@ def _prog(progress: Progress) -> Callable[[float, str], None]:
 
 class ValidationError(ValueError):
     """Raised for user-correctable input problems."""
+
+
+class ConflictError(ValidationError):
+    """The request is understood and refused by a rule (answered 409)."""
 
 
 # ---------------------------------------------------------------------------
@@ -1382,6 +1387,58 @@ def set_key_plans(db: Session, project: Project, answers: dict[int, bool],
     return out
 
 
+# normalise_level (5.7.0) lives with level_key in domain/consolidation.py
+# since rc3, so the composite map groups sheets by the same rule.
+from .domain.consolidation import normalise_level  # noqa: E402,F401
+
+
+def set_page_level(db: Session, project: Project, page_no: int, level: Optional[str],
+                   *, actor: str = "user") -> dict:
+    """A level typed on the Scale screen (5.7.0, Marcelo, 16 Nov 2026: "só
+    se o nível não estiver claro"). Allowed only on a page whose drawing
+    title states no level, or one a person set before; a level read off the
+    title block is the drawing's word and is not overwritten here. The NERs
+    whose own sheet is this page and that have no level take it (the level
+    is what merges two same-named NERs of one level)."""
+    sh = SH.for_project(db, project.id)
+    pg = next((x for x in db.execute(select(Page).join(Drawing).where(
+        Drawing.project_id == project.id)).scalars()
+        if sh.key(x.drawing_id, x.number) == page_no), None)
+    if pg is None:
+        raise ValidationError(f"page {page_no} not found")
+    # rc3 (rc1 tester's risks): no control character in a level, and no
+    # level typed on a key plan - it serves no NER; the screen never offered it.
+    if level and any(ord(ch) < 32 or 127 <= ord(ch) < 160 for ch in str(level)):
+        raise ValidationError("a level cannot contain control characters")
+    if level and str(level).strip() and getattr(pg, "key_plan", False):
+        raise ValidationError("this page is a key plan: a level is typed on the detail "
+                              "sheets, whose NERs take it")
+    if (pg.level or "").strip() and pg.level_source != "manual":
+        raise ConflictError(f"the drawing title of this page states {pg.level}; "
+                            f"a level read off the drawing is not changed here")
+    new = normalise_level(level)
+    old = pg.level
+    pg.level = new
+    pg.level_source = "manual" if new else None
+    rooms = []
+    for a in db.execute(select(NerAsset).where(
+            NerAsset.project_id == project.id, NerAsset.canonical_page == pg.number,
+            NerAsset.deleted_at.is_(None))).scalars():
+        # A NER with no book of its own belongs to the first book, as
+        # everywhere else (5.7.0-rc2, T1-10).
+        first = sh.drawing_ids[0] if sh.drawing_ids else None
+        if (a.canonical_drawing_id or first) != pg.drawing_id:
+            continue
+        if not (a.level or "").strip() or (old and level_key(a.level) == level_key(old)):
+            a.level = new
+            rooms.append(a.display_name)
+    audit(db, project.id, "page.level_set", entity="page", entity_id=pg.id, actor=actor,
+          payload={"page": page_no, "from": old, "to": new, "ners": rooms},
+          justification="typed on the Scale screen: the drawing title states no level")
+    db.commit()
+    return {"page": page_no, "level": new, "level_source": pg.level_source, "ners": rooms}
+
+
 def set_key_plan(db: Session, project: Project, page_no: int, key_plan: bool,
                  *, actor: str = "user") -> dict:
     """The person's answer to "is this page a key plan?" — for a title block
@@ -1552,9 +1609,15 @@ def import_teap(db: Session, project: Project, teap: TeapFile,
     # practice: on the reference workbook it produced 5,543 spaces instead of 115
     # and left the optimiser building a model with hundreds of thousands of
     # variables. Refuse it unless the user says so explicitly.
-    if path.suffix.lower() != ".csv" and not teap.venue_filter and not allow_all_venues:
+    if not teap.venue_filter and not allow_all_venues:
         report(0.05, "checking which venues the sheet covers")
-        venues = preview_venues(str(path), teap.sheet, teap.header_row, teap.mapping)
+        if path.suffix.lower() == ".csv":
+            # A CSV is checked as a workbook is (rc3).
+            from .domain.teap_import import list_venues
+            venues = [{"venue_code": c, "venue_name": n, "rows": k}
+                      for c, n, k in list_venues(read_csv(str(path), teap.mapping))]
+        else:
+            venues = preview_venues(str(path), teap.sheet, teap.header_row, teap.mapping)
         if len(venues) > 1:
             top = ", ".join(f"{v['venue_code'] or v['venue_name']} ({v['rows']:,} rows)"
                             for v in venues[:6])
@@ -1566,7 +1629,7 @@ def import_teap(db: Session, project: Project, teap: TeapFile,
 
     report(0.15, "reading rows")
     if path.suffix.lower() == ".csv":
-        imp = read_csv(str(path), teap.mapping)
+        imp = read_csv(str(path), teap.mapping, venue_filter=teap.venue_filter)
     else:
         imp = read_sheet(str(path), teap.sheet, teap.header_row, teap.mapping,
                          venue_filter=teap.venue_filter)
@@ -1632,7 +1695,9 @@ def import_teap(db: Session, project: Project, teap: TeapFile,
                    "decisions_without_a_space": len(set(carried) - {t.space_key for t in out}),
                    "warnings": imp.warnings[:20]})
     db.commit()
-    report(1.0, f"{len(imp.rows):,} rows imported into {len(out):,} spaces")
+    others = next((w for w in imp.warnings if "row(s) of other venues left out" in str(w)), "")
+    report(1.0, f"{len(imp.rows):,} rows imported into {len(out):,} spaces"
+                + (f"; {others.split(' (')[0]}" if others else ""))
     return out
 
 
@@ -2139,6 +2204,7 @@ def _element_to_ner(e: Element, sh: Optional["SH.Sheets"] = None) -> NER:
         reserved_ports=e.reserved_ports, locked=e.locked, removable=e.removable,
         movable=e.movable, confidence=e.confidence,
         proposed=(e.origin == "proposed"), notes=[e.notes] if e.notes else [],
+        user_note=(e.notes or "").strip(),
     )
 
 
@@ -2209,6 +2275,7 @@ def _asset_to_ner(a: NerAsset, sh: Optional["SH.Sheets"] = None) -> NER:
         removable=not a.locked, movable=a.movable, confidence=a.confidence,
         level=a.level, environment=a.environment,
         proposed=(a.status == NerStatus.SUGGESTED), notes=notes,
+        user_note=(a.notes or "").strip(),
     )
 
 
@@ -2582,12 +2649,17 @@ def undecline_wifi_space(db: Session, project: Project, space_key: Optional[str]
 
 def wifi_hand_moved(db: Session, project_id: int) -> set[int]:
     """Elements whose last word is a person's drag: an ``element.moved``
-    newer than any ``wireless.returned`` (5.3.0 undo) for the same element."""
+    newer than any ``wireless.returned`` (5.3.0 undo) for the same element.
+
+    A deletion or a creation ends an element's history (5.7.0, tester F5):
+    the database gives a new point the number of the last one deleted, and
+    the drags of the deleted point made the new one "moved by you"."""
     last: dict[int, tuple[int, str]] = {}
     for aid, eid, action in db.execute(
             select(AuditLog.id, AuditLog.entity_id, AuditLog.action).where(
                 AuditLog.project_id == project_id,
-                AuditLog.action.in_(("element.moved", "wireless.returned")))
+                AuditLog.action.in_(("element.moved", "wireless.returned",
+                                     "element.deleted", "element.created")))
             .order_by(AuditLog.id)):
         if eid is not None:
             last[int(eid)] = (aid, action)
@@ -2601,7 +2673,14 @@ def wifi_decisions(db: Session, project: Project) -> dict:
     from .domain.pdf_ingest import DEMAND_KINDS
     names = {t.space_key: (t.space_name, t.space_code) for t in db.execute(
         select(TeapSpace).where(TeapSpace.project_id == project.id)).scalars()}
-    deleted = [{"space_key": k, "space_name": names.get(k, (k, None))[0],
+
+    def _gone(k: str) -> tuple:
+        # A space no longer in the TEAP (5.7.0, tester F11): said in words,
+        # not shown as the raw key "VVV|SPT.200.01".
+        code = str(k).split("|", 1)[-1]
+        return (f"{code} - no longer in the TEAP", None)
+
+    deleted = [{"space_key": k, "space_name": names.get(k) and names[k][0] or _gone(k)[0],
                 "space_code": names.get(k, (None, None))[1]}
                for k in (project.wifi_declined or [])]
     moved_ids = wifi_hand_moved(db, project.id)
@@ -2614,7 +2693,8 @@ def wifi_decisions(db: Session, project: Project) -> dict:
                 Element.space_key.is_not(None)).order_by(Element.id)).scalars():
             moved.append({"element_id": e.id, "label": e.label, "page": sh.of(e),
                           "space_key": e.space_key,
-                          "space_name": names.get(e.space_key, (e.space_key, None))[0]})
+                          "space_name": (names[e.space_key][0] if e.space_key in names
+                                         else _gone(e.space_key)[0])})
     return {"deleted": deleted, "moved": moved}
 
 
@@ -2862,6 +2942,9 @@ def _place_access_points_from_teap(db: Session, project: Project, *, actor: str)
             for e in sorted((e for e in have if e.origin == "teap" and e.id not in hand_moved),
                             key=lambda e: e.id, reverse=True)[:extra]:
                 totals["removed_names"].append(e.label)
+                audit(db, project.id, "element.deleted", entity="element", entity_id=e.id,
+                      actor=actor, payload={"label": e.label, "by": "Place Wi-Fi",
+                                            "why": "more points than the space has Wi-Fi"})
                 db.delete(e)
                 extra -= 1
             totals["removed_extra"] += len(have) - want - extra
@@ -2901,6 +2984,11 @@ def _place_access_points_from_teap(db: Session, project: Project, *, actor: str)
                                   f"{sh.label(sh.of(ds))}"])
             db.add(e)
             db.flush()          # the label sequence reads the rows already added
+            # A new point's history starts here (5.7.0, F5): its number may
+            # be one a deleted point had.
+            audit(db, project.id, "element.created", entity="element", entity_id=e.id,
+                  actor=actor, payload={"label": label, "kind": "WIRELESS",
+                                        "space_key": teap.space_key, "by": "Place Wi-Fi"})
             totals["names"].append(label)
         totals["placed"] += missing
         totals["spaces_placed"] += 1
@@ -3094,11 +3182,11 @@ def refresh_occurrence_links(db: Session, project: Project) -> dict:
                 per_page[sk(o)] = o
         for page, other in per_page.items():
             lp, lo = level.get(sk(primary)), level.get(page)
-            if lp and lo and lp != lo:
+            if lp and lo and level_key(lp) != level_key(lo):
                 continue                      # another floor — never inferred
             key = (teap.id, other.id)
             wanted.add(key)
-            same_level = bool(lp and lo and lp == lo)
+            same_level = bool(lp and lo and level_key(lp) == level_key(lo))
             both_read = level_read.get(sk(primary), False) and level_read.get(page, False)
             verdict = ("confirmed" if (method == "exact_code" and same_level and both_read)
                        else "proposed")
@@ -3408,6 +3496,20 @@ class _StoredMethod:
 # recorded. Removed with the solver itself.
 
 
+def _live_notes(db: Session, project: Project) -> dict[str, str]:
+    """The notes written on the NERs screen as they are now, by analysis key
+    (``A<id>`` for a register room, ``E<id>`` for a bare marker)."""
+    out = {f"A{a.id}": (a.notes or "").strip()
+           for a in db.execute(select(NerAsset).where(
+               NerAsset.project_id == project.id)).scalars()}
+    out.update({f"E{e.id}": (e.notes or "").strip()
+                for e in db.execute(select(Element).where(
+                    Element.project_id == project.id,
+                    Element.kind.in_((ElementKind.NER_CRITICAL,
+                                      ElementKind.NER_NONCRITICAL)))).scalars()})
+    return out
+
+
 def scenario_view(db: Session, project: Project, name: str
                   ) -> Optional[tuple[CoverageResult, list[NER]]]:
     """Replay a saved scenario as something the exporters can draw.
@@ -3446,6 +3548,7 @@ def scenario_view(db: Session, project: Project, name: str
     if not payload.get("ners") and not payload.get("assignments"):
         return None
 
+    live_notes = _live_notes(db, project)
     ners: list[NER] = []
     for n in payload.get("ners", []):
         point = Point(float(n["x"]), float(n["y"]), int(n["page"]))
@@ -3463,7 +3566,11 @@ def scenario_view(db: Session, project: Project, name: str
             key=n["key"], label=n.get("label", n["key"]), kind=n.get("kind", ""),
             point=point, other_points=others,
             critical=bool(n.get("critical")), total_ports=n.get("total_ports"),
-            proposed=bool(n.get("proposed"))))
+            proposed=bool(n.get("proposed")),
+            # 5.7.0-rc2 (T1-1): the note is read live. A note is written for
+            # the meeting, often after the analysis was saved, and the PDF of
+            # an analysed project is drawn from this snapshot.
+            user_note=live_notes.get(str(n["key"]), str(n.get("user_note") or ""))))
 
     assignments: list[Assignment] = []
     dropped: list[str] = []
@@ -3630,6 +3737,7 @@ def save_scenario(db: Session, project: Project, name: str, kind: str,
         "ners": [{"key": n.key, "label": n.label, "kind": n.kind, "page": n.point.page,
                   "x": n.point.x, "y": n.point.y, "critical": n.critical,
                   "proposed": n.proposed, "total_ports": n.total_ports,
+                  "user_note": getattr(n, "user_note", "") or "",
                   "other": [{"page": q.page, "x": q.x, "y": q.y}
                             for q in getattr(n, "other_points", None) or []]}
                  for n in ners],

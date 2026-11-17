@@ -184,6 +184,14 @@ def _norm(s: Any) -> str:
     return re.sub(r"\s+", " ", str(s or "").strip().lower())
 
 
+def _venue_key(s: Any) -> str:
+    """A venue code or name as the filter compares it (5.7.0, tester F10):
+    case, spaces, dots, dashes and underscores do not count - "S Y N",
+    "syn" and "SYN" are one venue. A row of another venue is left out and
+    counted, never dropped in silence."""
+    return re.sub(r"[\s.\-_/]+", "", str(s or "").strip().lower())
+
+
 def _score_header_row(cells: list[Any]) -> tuple[float, dict[str, str]]:
     """How well a candidate header row maps onto the canonical fields."""
     labels = [_norm(c) for c in cells]
@@ -310,19 +318,25 @@ def read_sheet(path: str, sheet: str, header_row: int,
             raise ValueError(f"required field(s) not mapped: {', '.join(missing)}")
 
         rows: list[TeapRow] = []
-        vf = _norm(venue_filter) if venue_filter else None
+        vf = _venue_key(venue_filter) if venue_filter else None
+        other_venues = 0
         for n, cells in enumerate(ws.iter_rows(min_row=header_row + 1, values_only=True),
                                   start=header_row + 1):
             if cells is None or not any(c is not None and str(c).strip() for c in cells):
                 continue
             values = {f: (cells[i] if i < len(cells) else None) for f, i in col_index.items()}
-            if vf and _norm(values.get("venue_code")) != vf and _norm(values.get("venue_name")) != vf:
+            if vf and _venue_key(values.get("venue_code")) != vf \
+                    and _venue_key(values.get("venue_name")) != vf:
+                other_venues += 1
                 continue
             rows.append(TeapRow(row_number=n, sheet=sheet, values=values))
             if limit and len(rows) >= limit:
                 warnings.append(f"import truncated at {limit} rows")
                 break
 
+        if other_venues:
+            warnings.append(f"{other_venues} row(s) of other venues left out "
+                            f"(only {venue_filter} is imported)")
         return TeapImport(source=path, sheet=sheet, mapping=dict(mapping),
                           rows=rows, warnings=warnings)
     finally:
@@ -330,7 +344,8 @@ def read_sheet(path: str, sheet: str, header_row: int,
 
 
 def read_csv(path: str, mapping: dict[str, Optional[str]],
-             *, encoding: str = "utf-8-sig") -> TeapImport:
+             *, encoding: str = "utf-8-sig",
+             venue_filter: Optional[str] = None) -> TeapImport:
     with open(path, "r", encoding=encoding, newline="") as fh:
         sample = fh.read(8192)
         fh.seek(0)
@@ -344,7 +359,19 @@ def read_csv(path: str, mapping: dict[str, Optional[str]],
                     values={f: raw.get(h) for f, h in mapping.items() if h})
             for i, raw in enumerate(reader, start=2)
         ]
-    return TeapImport(source=path, sheet="csv", mapping=dict(mapping), rows=rows)
+    # The venue filter applies to a CSV as to a workbook (rc3): it was
+    # ignored, and every venue of the file came into the project.
+    warnings: list[str] = []
+    if venue_filter:
+        vf = _venue_key(venue_filter)
+        kept = [r for r in rows if _venue_key(r.values.get("venue_code")) == vf
+                or _venue_key(r.values.get("venue_name")) == vf]
+        if len(kept) != len(rows):
+            warnings.append(f"{len(rows) - len(kept)} row(s) of other venues left out "
+                            f"(only {venue_filter} is imported)")
+        rows = kept
+    return TeapImport(source=path, sheet="csv", mapping=dict(mapping), rows=rows,
+                      warnings=warnings)
 
 
 def profile_csv(path: str, *, encoding: str = "utf-8-sig") -> SheetProfile:

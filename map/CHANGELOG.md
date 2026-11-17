@@ -10,6 +10,47 @@ The number lives in one file, `VERSION`. To release: edit `VERSION`, the
 `docs/INSTALL.html`, `docs/QUICK-INSTALL.html` and `docs/HISTORY.html`, run the
 tests, build the package.
 
+## 1.3.0 — 2026-11-17
+
+From RackReach 5.7.0, what concerns the map study:
+- **Notes on the racks.** The inspector of the Drawing viewer has the rack's
+  `Notes`; with the pointer over a rack that has one, the note shows beside it
+  on every sheet. On the composite map a rack with a note carries a small pale
+  dot, shows its note under the pointer, and the note is written in the
+  selection panel too. Report: **with rack notes** (off by default) prints each
+  note under its rack on the marked-up PDF and on the composite map PDF,
+  wrapped, on every sheet the rack is on.
+- **The level of a sheet by hand.** On the Scale screen, a detail sheet whose
+  title states no level has a `level?` box (`02`, `B1`, `LEVEL 03`); its racks
+  with no level take it. A level the title states is never changed.
+- A rack placed by hand takes the rename rules (80 characters, no control
+  character, no leading = + - @).
+- The name-only labels an import leaves out are not added back at the next
+  start; a book that got them goes through the space rules once more.
+- Wi-Fi points: a new point given a deleted point's number no longer inherits
+  its drags.
+- A book that cannot be marked up answers in words, naming the file; an
+  export that cannot be saved because the last one is still open in a PDF
+  reader says so.
+- rc2 (findings of the independent tester on rc1, and Marcelo, 17 Nov 2026):
+  a **Notes (n)** button on the Drawing viewer, off each time it opens, keeps
+  every rack's note written under it on the sheet; a note keeps its en dashes,
+  curly quotes, euro signs and arrows on the PDFs and is moved in, or above
+  the rack, at the edge of a sheet instead of being cut; `2` is written
+  `LEVEL 02` and `LEVEL 2` / `LEVEL 02` are one level; a title block read at
+  start-up that states a level replaces a level typed by hand on that sheet;
+  a level typed on a sheet of the second book no longer reaches a rack of the
+  first book.
+- rc3 (findings of the independent tester on rc2): `LEVEL -1` (a basement) is
+  no longer level 1; the composite map groups `LEVEL 2` and a typed `2` as one
+  map; a locked PDF of several books or of the composite map is said in
+  words, and a book that cannot be read is not called a locked export; a
+  check mark, a double arrow or CJK in a note is drawn in a fallback font, an
+  emoji as "?"; a note taller than the sheet is written wider, then smaller;
+  the `Notes (n)` button counts the racks of the sheet open, keeps the note on
+  the sheet at every edge, and the register racks "not on the sheet" show
+  theirs; a level with a control character, or on a key plan, is refused.
+
 ## 1.2.0 — 2026-11-05
 
 MINOR: the 900-series master plans, carried over from RackReach 5.5.0.
