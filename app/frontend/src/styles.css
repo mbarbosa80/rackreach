@@ -138,6 +138,8 @@ a { color: var(--accent); }
 .grid.c3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .grid.c5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
 .grid.c6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+/* The seven Exceptions tiles in one row (5.7.0: the 7th wrapped). */
+.grid.c7 { grid-template-columns: repeat(7, minmax(0, 1fr)); }
 .grid.c4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
 
 table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
@@ -535,3 +537,18 @@ tr.row-decided td { opacity: 0.72; }
   border: 1px solid #000; margin-right: 5px; vertical-align: middle; }
 .composite-window .toast { position: fixed; top: 52px; left: 50%; transform: translateX(-50%);
   z-index: 20; max-width: 70vw; cursor: pointer; }
+
+/* A NER's note under the mouse in the Drawing viewer (5.7.0). */
+.ner-note-tip {
+  position: fixed; z-index: 60; max-width: 300px; padding: 6px 9px;
+  background: #fffbe0; color: #222; border: 1px solid #c9b458; border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.18); font-size: 12px; line-height: 1.35;
+  white-space: pre-wrap; overflow-wrap: anywhere; pointer-events: none;
+}
+
+/* The level typed by hand on the Scale screen (5.7.0). */
+input.level-input { width: 90px; margin-left: 6px; padding: 1px 4px; font-size: 12px; display: inline-block; }
+/* 5.8.0: the NER's level, on the NERs screen and in the Inspector */
+.level-field { display: flex; flex-direction: column; gap: 2px; min-width: 110px; }
+.level-field input { width: 100%; }
+.level-field small.warn { color: var(--warn); }

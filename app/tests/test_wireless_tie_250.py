@@ -418,13 +418,14 @@ def test_the_workbook_filters_every_sheet_and_computes_utilisation_live(client):
     ws = wb["NERs and ports"]
     head = [c.value for c in ws[1]]
     # 3.0.0: Full name B, Space code C, Notes last; the rest in its old order
-    assert head == ["NER", "Full name", "Space code", "Page", "Critical", "Indoor / outdoor",
+    assert head == ["NER", "Full name", "Space code", "Page", "Level", "Critical", "Indoor / outdoor",
                     "Spaces served", "Ports assigned", "Total ports", "Utilisation %",
                     "Wireless points", "of which wireless ports", "Fibre runs to TER", "Notes"]
     row = [c.value for c in ws[2]]
-    assert row[7] == 5 and row[8] == 24, row                 # 4 laptops + DWISA (4.0.0)
-    assert row[9] == '=IF(OR(I2="",I2=0),"",H2/I2)' and ws["J2"].number_format == "0.0%"
-    assert row[10:12] == [2, 1]                                # APs drawn, DWISA ports
+    # 5.8.0: Level after Page moves the rest one column right
+    assert row[8] == 5 and row[9] == 24, row                 # 4 laptops + DWISA (4.0.0)
+    assert row[10] == '=IF(OR(J2="",J2=0),"",I2/J2)' and ws["K2"].number_format == "0.0%"
+    assert row[11:13] == [2, 1]                                # APs drawn, DWISA ports
 
     ws = wb["TEAP and coverage"]
     head = [c.value for c in ws[1]]

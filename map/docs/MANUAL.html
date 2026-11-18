@@ -416,7 +416,7 @@ kbd {
 <div class="wrap">
 <header class="masthead">
 <div class="id">
-<div class="eyebrow">RackReach Map · version 1.2.0 · map study</div>
+<div class="eyebrow">RackReach Map · version 1.4.0 · map study</div>
 <h1>User manual</h1>
 
 <p>How the RackReach Map works, screen by screen. It is the map half of RackReach and nothing else: you load the design books (design book), confirm the scales, place and move racks and the other markers by hand, measure, and export the marked-up map as a PDF. There is no demand list, no matching, no demand and no coverage calculation here. The version history is in <code>CHANGELOG.md</code>.</p>
@@ -463,7 +463,7 @@ kbd {
 <tbody>
 <tr><td class="ctrl">Address</td><td><code>http://localhost:8001</code></td><td><code>http://localhost:8000</code></td></tr>
 <tr><td class="ctrl">Folder</td><td><code>%LOCALAPPDATA%\Programs\ner-map-analyzer</code></td><td><code>%LOCALAPPDATA%\Programs\ner-analyzer</code></td></tr>
-<tr><td class="ctrl">Scheduled tasks</td><td><code>NER Map Analyzer</code>, <code>NER Map Analyzer watchdog</code></td><td>its own</td></tr>
+<tr><td class="ctrl">Scheduled tasks</td><td><code>Rack Map Analyzer</code>, <code>Rack Map Analyzer watchdog</code></td><td>its own</td></tr>
 <tr><td class="ctrl">Projects and accounts</td><td>its own database</td><td>its own database</td></tr>
 </tbody></table></div>
 <p>A project of one is not visible in the other, and a project package exported by one is refused by the other. To study a venue here, import its books here again.</p>
@@ -517,6 +517,7 @@ kbd {
 <thead><tr><th>Control</th><th>What it does</th></tr></thead>
 <tbody>
 <tr><td class="ctrl">Key plan</td><td>Marks a sheet that only illustrates (key enlarged plan, index, abbreviations). Its rooms are not read and <code>Place racks from the drawing</code> skips it; you can still draw on it by hand. Ticked from the title block; change it and press <code>Apply key-plan ticks</code>.</td></tr>
+<tr><td class="ctrl">Sheet / level</td><td>The drawing number, the sheet title and, when the title states one, the level (<code>LEVEL 01</code>). A detail sheet whose title states <strong>no level</strong> has a small <code>level?</code> box: <code>2</code>, <code>02</code>, <code>B1</code> or <code>LEVEL 03</code> become <code>LEVEL 02</code>, <code>LEVEL B1</code>, <code>LEVEL 03</code>…, empty takes it back; <code>LEVEL 2</code> and <code>LEVEL 02</code> are the same level, but <code>LEVEL -1</code> (a basement) is not level 1. A level with a control character, or on a key plan, is refused. The racks whose own sheet it is and that have no level take it — the level is what makes two racks of one name on two sheets of one level the same rack. A level the title states is never changed here; when the title block of the sheet is read later and states a level, it replaces the one typed by hand.</td></tr>
 <tr><td class="ctrl">Set (ratio or text) / Confirm</td><td>Type <code>200</code> or <code>1/8" = 1'-0"</code> to override the detected scale; <code>Confirm</code> applies it (or the detected one) and marks the page confirmed.</td></tr>
 <tr><td class="ctrl">Confirm all pages</td><td>Confirms every page that has a scale, in one go.</td></tr>
 <tr><td class="ctrl">Place racks from the drawing</td><td>Places the racks the books state — team annotations, the room codes (or a room code) rooms, "Network Equipment Rack" labels, rack block symbols — never on a key plan and never where a rack already is. They are named in sequence (RKc_01.1 …, RK_20.1 …). Running it again only adds what is missing. Optional: you can draw every rack yourself instead.</td></tr>
@@ -548,20 +549,24 @@ kbd {
 <tr><td class="ctrl">Fit</td><td>Fits the sheet to the window.</td></tr>
 <tr><td class="ctrl">Radii</td><td>Shows or hides the reach circles.</td></tr>
 <tr><td class="ctrl">Spaces</td><td>Shows or hides the room names read off the sheet.</td></tr>
+<tr><td class="ctrl">Notes (n)</td><td>Only when at least one rack drawn on this sheet has a note; <em>n</em> is how many. <strong>Off each time the viewer opens.</strong> On, every rack's note stays written under it on the sheet, on a pale box, wrapped - to the left of the rack, or above it, when it would run off the sheet. Off, a note shows only with the pointer over its rack.</td></tr>
 <tr><td class="ctrl">Search</td><td>Finds a room, a rack, any marker or an area on any page and jumps to it.</td></tr>
 </tbody></table></div>
+<p>Click a <strong>Rack</strong>: the inspector has its <code>Notes</code> (<em>becomes critical in the next design book revision</em>, <em>moved from the tunnel; RK_24.1 removed, this one covers its rooms</em>). With the pointer over a rack that has a note, the note shows beside it on every sheet; on the composite map a rack with a note carries a small pale dot and shows its note under the pointer. A rack's name, wherever it is typed, has at most 80 characters, a letter or a digit, no control character and does not start with <code>=</code> <code>+</code> <code>-</code> or <code>@</code>.</p>
+<p>The inspector of a rack also has its <code>Level</code>, the same field as on the <a href="#ners">Racks</a> screen; under it, <em>Serve another level?</em> says how to show a rack that serves a level it is not drawn on (see <a href="#tips">Tips</a>).</p>
 <p>Deleting a rack takes it off every page it is drawn on; <em>Restore</em> on the racks screen brings it back. <em>Delete only this marker</em> in the inspector removes one drawing of it.</p>
 </section>
 
 <section id="ners">
 <div class="screen-step">Step 4</div>
 <h2>Racks</h2>
-<p class="lede">The list of racks: name, criticality, pages, delete.</p>
+<p class="lede">The list of racks: name, criticality, level, pages, delete.</p>
 <div class="tablewrap"><table>
 <thead><tr><th>Column</th><th>What it does</th></tr></thead>
 <tbody>
 <tr><td class="ctrl">Name</td><td>Rename it; the marker on the map follows. A name another rack already has asks whether they are the same rack (OK joins them) or keeps the old name.</td></tr>
 <tr><td class="ctrl">Criticality</td><td>Critical or non-critical — the colour on the map and in the PDF.</td></tr>
+<tr><td class="ctrl">Level</td><td>The rack's level. It comes from the sheet the rack is drawn on (the level the title block states, or the one typed on the Scale screen). Pick another from the list — the levels the project's sheets state — or type one (<code>2</code>, <code>Floor 2</code>, <code>B1</code>, <code>-1</code>, <code>Mezzanine</code>; at most 40 characters): it is written as the titles write it (<code>LEVEL 02</code>, <code>LEVEL B1</code>, <code>LEVEL -1</code>), marked <em>by you</em>, and no level read off a sheet changes it afterwards. Empty gives the rack back the level of its sheet, shown greyed in the empty field. Merging two racks keeps a level typed by hand; undoing the merge takes it back. A rack drawn on sheets of two different levels says so under the field. The same field is in the inspector.</td></tr>
 <tr><td class="ctrl">Pages</td><td>Every page it is drawn on; click one to open it in the Drawing viewer, centred on the rack.</td></tr>
 <tr><td class="ctrl">Delete / Removed (n) / Restore</td><td>Deletes the rack from every page; removed racks can be restored.</td></tr>
 </tbody></table></div>
@@ -576,6 +581,7 @@ kbd {
 <tbody>
 <tr><td class="ctrl">Marked-up PDF</td><td>The book with everything drawn on it — racks with their reach circles, equipment rooms, IDFs, COWs, AV network nodes, Wi-Fi points, named areas — and the legend on the first page. It runs in the background with a progress bar; on a large book it takes a minute or two.</td></tr>
 <tr><td class="ctrl">with legend</td><td>Off, the legend box is left out and the circles, the scale and the disclaimer go to a thin line at the foot of each page.</td></tr>
+<tr><td class="ctrl">with rack notes</td><td>Off by default. On, each rack's note is printed under its name on the marked-up PDF and on the composite map PDF, wrapped and never cut (moved in, or above the rack, at the edge of the sheet), dashes, quotes, euro signs and arrows as typed (a check mark, a double arrow or Chinese, Japanese and Korean text in a fallback font added only when needed, an emoji as <code>?</code>; a note taller than the sheet written wider, then smaller), on every sheet the rack is drawn on. A note can cover part of the drawing: the copy with notes is for your own meetings, the one without for the design team.</td></tr>
 <tr><td class="ctrl">Composite map PDF</td><td>One page per composite map you built (below).</td></tr>
 </tbody></table></div>
 </section>
@@ -606,6 +612,14 @@ kbd {
 <tr><td class="ctrl">Dashed violet circle</td><td>Reach at the photographer limit (70 m by default), straight line</td></tr>
 <tr><td class="ctrl">Shaded outline with a name</td><td>A named area, illustrative only</td></tr>
 </tbody></table></div>
+</section>
+
+<section id="tips">
+<h2>Tips</h2>
+<h4>Mark a level on one sheet</h4>
+<p>Where the design book has them, mark the racks on the <strong>900-series sheets</strong> — one whole level per sheet — rather than on the detail sheets that cut a level into sections. A level on one sheet gives one marked-up page per floor, nothing to stitch, and no rack or Wi-Fi point drawn twice on the seams of two sections. On a venue of several levels, check every rack's level on the <a href="#ners">Racks</a> screen.</p>
+<h4>Serve another level</h4>
+<p>Every distance here is a straight line on one sheet: no rack is shown reaching another floor. When one does, draw the same rack on that level's sheet too, with the same name, and confirm it is the same rack when asked: it is one rack drawn on both levels, with its circles on each sheet. The vertical run between the floors is not measured.</p>
 </section>
 
 <section id="limits">

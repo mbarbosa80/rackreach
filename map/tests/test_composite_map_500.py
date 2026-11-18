@@ -466,3 +466,43 @@ def test_deleting_the_project_takes_the_maps_with_it(client, tmp_path):
     assert not folder.exists()
     with SessionLocal() as db:
         assert db.execute(select(CompositeMap).where(CompositeMap.project_id == pid)).first() is None
+
+
+# ---- 5.7.0: a NER's note on the map and, when asked for, on the PDF ----------
+
+def test_a_ner_note_is_on_the_overlay_and_printed_only_when_asked(client, built):
+    pid, mid, aid = built["pid"], built["map_id"], built["asset"]
+    note = "This NER becomes critical in the next VDB revision"
+    r = client.patch(f"/api/projects/{pid}/ners/{aid}", json={"values": {"notes": note}})
+    assert r.status_code == 200, r.text
+    ov = client.get(f"/api/projects/{pid}/composite/{mid}").json()
+    rec = [n for n in ov["ners"] if n["asset_id"] == aid][0]
+    assert rec["note"] == note
+    texts = {}
+    for flag in (False, True):
+        j = _wait(client, client.post(
+            f"/api/projects/{pid}/composite-report?notes={str(flag).lower()}").json()["job_id"])
+        assert j["state"] == "done", j
+        doc = pymupdf.open(stream=client.get(j["result"]["download"]).content, filetype="pdf")
+        texts[flag] = " ".join(p.get_text() for p in doc).replace("\n", " ")
+    assert "next VDB revision" not in texts[False]
+    assert "next VDB revision" in texts[True], texts[True][:500]
+    client.patch(f"/api/projects/{pid}/ners/{aid}", json={"values": {"notes": ""}})
+
+
+def test_a_composite_note_keeps_dashes_quotes_and_arrows(client, built):
+    """5.7.0-rc2 (T1-2): the composite map prints the note with the same
+    Unicode font as the marked-up PDF."""
+    pid, aid = built["pid"], built["asset"]
+    note = "Moved – see “VDB rev C” → B2, €1k"
+    client.patch(f"/api/projects/{pid}/ners/{aid}", json={"values": {"notes": note}})
+    try:
+        j = _wait(client, client.post(
+            f"/api/projects/{pid}/composite-report?notes=true").json()["job_id"])
+        assert j["state"] == "done", j
+        doc = pymupdf.open(stream=client.get(j["result"]["download"]).content, filetype="pdf")
+        text = " ".join(p.get_text() for p in doc).replace("\n", " ")
+        for ch in ("–", "“", "”", "→", "€"):
+            assert ch in text, ch
+    finally:
+        client.patch(f"/api/projects/{pid}/ners/{aid}", json={"values": {"notes": ""}})

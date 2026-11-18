@@ -122,7 +122,7 @@ def test_ports_requested_on_a_ner_and_pending_agree_on_every_sheet(riv):
     assert f["ports on a NER"] == on_ner
     ners = [r for r in wb["NERs and ports"].iter_rows(min_row=2, values_only=True)
             if r[0] and r[0] != "TOTAL"]
-    assert sum(r[7] for r in ners) == on_ner
+    assert sum(r[8] for r in ners) == on_ner     # 5.8.0: Level is column 5
 
     assert s["Totals: Ports on no NER yet (pending)"] == pending
     assert f["ports on no NER yet (pending)"] == pending
@@ -134,7 +134,7 @@ def test_ports_requested_on_a_ner_and_pending_agree_on_every_sheet(riv):
     assert sum(r[6] for r in lines) == teap
     assert sum(r[6] for r in lines if r[0] != "Pending — no NER") == on_ner
     assert not any(r[4] == "AP" for r in lines), "an access point is not a TEAP product"
-    assigned = {r[0]: r[7] for r in ners}
+    assigned = {r[0]: r[8] for r in ners}
     for ner, total in assigned.items():
         assert sum(r[6] for r in lines if r[0] == ner) == total, ner
 
@@ -147,7 +147,7 @@ def test_indoor_outdoor_count_the_same_rooms_everywhere_and_never_a_removed_one(
     assert (f["    indoor"], f["    outdoor"], f["    indoor / outdoor not said"]) == (1, 1, 1)
     ws = wb["NERs and ports"]
     total = next(r for r in ws.iter_rows(min_row=2, values_only=True) if r[0] == "TOTAL")
-    assert total[5] == "1 indoor / 1 outdoor / 1 not said"
+    assert total[6] == "1 indoor / 1 outdoor / 1 not said"
     labels = [r[0] for r in ws.iter_rows(min_row=2, values_only=True) if r[0]]
     assert "NER_23.1" not in labels
 
@@ -372,4 +372,4 @@ def test_a_run_saved_before_400_is_counted_the_new_way_in_the_export(client):
     assert s["Totals: Ports on a NER (assigned in this run)"] == f["ports on a NER"] == 5
     ner = next(r for r in wb["NERs and ports"].iter_rows(min_row=2, values_only=True)
                if r[0] == "NER_20.1")
-    assert ner[7] == 5 and ner[10] == 1 and ner[11] == 1
+    assert ner[8] == 5 and ner[11] == 1 and ner[12] == 1

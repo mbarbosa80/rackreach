@@ -332,6 +332,19 @@ export function CompositeWindow({ projectId, mapId }: { projectId: number; mapId
                 <button className="small danger" disabled={sel.locked}
                         onClick={() => void remove(sel)}>{t("Delete NER")}</button>
               </div>
+              {/* The NER's note (5.7.0): shown on hover here and in the
+                  Drawing viewer, printed on the PDFs when asked for. */}
+              <label className="small" style={{ display: "block", marginTop: 6 }}>{t("Notes")}</label>
+              <textarea rows={3} key={`cn${sel.asset_id}-${sel.note || ""}`} defaultValue={sel.note || ""}
+                        placeholder={t("e.g. this NER becomes critical in the next VDB revision")}
+                        onBlur={(ev) => {
+                          const v = ev.target.value.trim();
+                          if (v === (sel.note || "")) return;
+                          void (async () => {
+                            try { await api.patchNer(projectId, sel.asset_id, { notes: v }); await load(); }
+                            catch (e: any) { setMsg({ text: e.message, kind: "err" }); }
+                          })();
+                        }} />
               <div className="small" style={{ marginTop: 6 }}>
                 {t("Open in the Drawing viewer")}:{" "}
                 {[...(sel.points || []).map((p: any) => p.page_key), ...(sel.off_map_pages || [])]
@@ -633,7 +646,11 @@ function MapView({ projectId, data, show, selected, onSelect, onDrop, focus }: {
                 {n.locked && <circle cx={at.X} cy={at.Y} r={px(3)} fill="#000" />}
                 <text x={at.X + px(11)} y={at.Y - px(9)} fontSize={px(13)} fontWeight={700}
                       fill="#000" className="composite-text halo">{n.name}</text>
-                <title>{n.name}</title>
+                {n.note && (
+                  <circle cx={at.X + px(7)} cy={at.Y - px(7)} r={px(3)} fill="#fffbe0"
+                          stroke="#8a7a2a" strokeWidth={1} vectorEffect="non-scaling-stroke" />
+                )}
+                <title>{n.note ? `${n.name}\n${n.note}` : n.name}</title>
               </g>
             );
           })}

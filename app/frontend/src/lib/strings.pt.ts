@@ -806,6 +806,23 @@ export const PT: Record<string, string> = {
   "read": "ler",
   "Click to read every note": "Clique para ler todas as notas",
   "with NER → space lines": "com linhas NER → espaço",
+  "with NER notes": "com notas das NERs",
+  "The NER's level: pick one the sheets state or type another (B1, Mezzanine). Empty gives it back the level of its sheet. Goes to the NERs sheet of the workbook.": "O nível da NER: escolha um dos níveis das folhas ou digite outro (B1, Mezzanine). Vazio volta ao nível da folha. Vai para a aba NERs da planilha.",
+  "by you": "por você",
+  "Serve another level?": "Atender outro nível?",
+  "Draw the same NER on that level's sheet too (same name; confirm it is the same NER): its ports add up, and each sheet is measured on its own.": "Desenhe a mesma NER também na folha daquele nível (mesmo nome; confirme que é a mesma NER): as portas somam, e cada folha é medida por si.",
+  "Or choose it under Served by on Demand per space: the ports count, the distance is not measured.": "Ou escolha-a em Served by na tela Demand per space: as portas contam, a distância não é medida.",
+  "Or register a shaft or riser between the two sheets (vertical) and trace the route: the distance goes through the shaft.": "Ou registre um shaft ou riser entre as duas folhas (vertical) e trace a rota: a distância passa pelo shaft.",
+  "Drawn on sheets of different levels. The level shown is the one chosen or the one of its main sheet.": "Desenhada em folhas de níveis diferentes. O nível mostrado é o escolhido ou o da folha principal.",
+  "The NER's level: chosen here or in the Drawing viewer's Inspector, else the level of its sheet. A column of the NERs sheet in the workbook.": "O nível da NER: escolhido aqui ou no Inspector do Drawing viewer; senão, o nível da folha. Uma coluna da aba NERs da planilha.",
+  "The NER's level: chosen here or in the Drawing viewer's Inspector, else the level of its sheet.": "O nível da NER: escolhido aqui ou no Inspector do Drawing viewer; senão, o nível da folha.",
+  "Keep every NER's note written under it on the sheet. Off: the note shows when the mouse is over the NER.": "Mantém a nota de cada NER escrita abaixo dela na folha. Desligado: a nota aparece ao passar o mouse sobre a NER.",
+  "level?": "nível?",
+  "no level": "sem nível",
+  "The drawing title states no level for this sheet. Type it (02, B1, LEVEL 03…) so NERs of the same level are recognised as one; empty takes it back.": "O título do desenho não informa o nível desta folha. Digite-o (02, B1, LEVEL 03…) para que NERs do mesmo nível sejam reconhecidas como uma só; vazio desfaz.",
+  "Each NER's note (NERs screen or Drawing viewer) printed under its name on both PDFs, wrapped, on every sheet the NER is on. Off by default: a note can cover part of the drawing.": "A nota de cada NER (tela NERs ou Drawing viewer) impressa abaixo do nome nos dois PDFs, com quebra de linha, em todas as folhas onde a NER aparece. Desligado por padrão: a nota pode cobrir parte do desenho.",
+  "e.g. this NER becomes critical in the next VDB revision": "ex.: esta NER passa a crítica na próxima revisão do VDB",
+  "Shown when the mouse is over this NER on every sheet, and printed beside it on the marked-up PDF when you export it with NER notes.": "Aparece ao passar o mouse sobre esta NER em todas as folhas, e sai impressa ao lado dela no PDF marcado quando você exporta com notas das NERs.",
   "The dotted lines from each space to the NER that serves it, with the distance written on them. Turned off, the markers, the area colours and the legend stay exactly as they are.":
     "As linhas pontilhadas de cada espaço até a NER que o atende, com a distância escrita nelas. Desligadas, os marcadores, as cores das áreas e a legenda ficam exatamente como estão.",
   "Page number - drawing number from the title block": "Número da página - número do desenho lido do carimbo",
@@ -1948,14 +1965,14 @@ export const PT: Record<string, string> = {
     "crítica:",
   "out of ports":
     "sem portas livres",
-  "criticality alerts (counted as served)":
-    "alertas de criticidade (contados como atendidos)",
-  "Spaces marked critical served by a NER that is not critical-rated. Counted in Served; click to see them":
-    "Espaços marcados como críticos atendidos por uma NER que não é crítica. Contados em Atendido; clique para vê-los",
+  "criticality alerts":
+    "alertas de criticidade",
+  "Spaces marked critical on a NER that is not critical-rated. The alert does not change the row's status - served, or over capacity when that NER is full; click to see them":
+    "Espaços marcados como críticos numa NER que não é crítica. O alerta não muda o status da linha - atendido, ou acima da capacidade quando essa NER está cheia; clique para vê-los",
   "suggested: critical":
     "sugerida: crítica",
   "Attention — criticality alert":
     "Atenção — alerta de criticidade",
-  "Attention: spaces marked critical served by a NER that is not critical-rated. They are served and counted as served; the row suggests the nearest critical NER, and choosing a NER in Served by settles it.":
-    "Atenção: espaços marcados como críticos atendidos por uma NER que não é crítica. Estão atendidos e contados como atendidos; a linha sugere a NER crítica mais próxima, e escolher uma NER em Atendido por resolve.",
+  "Attention: spaces marked critical on a NER that is not critical-rated. The alert does not change the row's status (served, or over capacity when that NER is full); the row suggests the nearest critical NER, and choosing a NER in Served by settles it.":
+    "Atenção: espaços marcados como críticos numa NER que não é crítica. O alerta não muda o status da linha (atendido, ou acima da capacidade quando essa NER está cheia); a linha sugere a NER crítica mais próxima, e escolher uma NER em Atendido por resolve.",
 };

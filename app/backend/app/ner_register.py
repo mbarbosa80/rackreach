@@ -303,6 +303,14 @@ def asset_dict(db: Session, a: NerAsset, *, meta: dict[int, tuple],
         "keep_is_open_question": keep_is_open_question(a),
         "in_as_is": a.in_as_is, "in_proposed": a.in_proposed,
         "building": a.building, "sector": a.sector, "level": a.level,
+        # 5.8.0: where the level came from, and the levels of the sheets the
+        # NER is drawn on (two different ones: drawn on two levels).
+        "level_source": a.level_source,
+        "page_levels": sorted({o["level"] for o in (occurrence_dict(e, meta) for e in occs)
+                               if (o.get("level") or "").strip()}),
+        # 5.8.0-rc2: with no level of its own, the level the workbook prints
+        # (its sheet's), shown greyed in the empty field so screen and sheet agree.
+        "sheet_level": None if (a.level or "").strip() else _sheet_level(db, a),
         "space_name": a.space_name, "space_code": a.space_code,
         "environment": a.environment,
         "canonical": {"drawing_id": a.canonical_drawing_id, "page": _asset_key(meta, a),
@@ -609,6 +617,25 @@ _EDITABLE = ("sector", "level", "building", "space_name", "space_code", "environ
              "access_constraints", "notes", "in_as_is", "in_proposed")
 
 
+def _sheet_level(db: Session, asset: NerAsset) -> Optional[str]:
+    """The level of the sheet the NER is drawn on (its canonical page, else
+    the first of its markers' pages that states one)."""
+    pages = []
+    if asset.canonical_page is not None:
+        pages.append((asset.canonical_drawing_id, asset.canonical_page))
+    pages += [(e.drawing_id, e.page) for e in sorted(asset.occurrences, key=lambda e: e.id)
+              if e.scenario_id is None]
+    for did, num in pages:
+        q = select(Page.level).join(Drawing).where(Drawing.project_id == asset.project_id,
+                                                   Page.number == num)
+        if did is not None:
+            q = q.where(Page.drawing_id == did)
+        lv = db.execute(q.order_by(Page.drawing_id)).scalars().first()
+        if (lv or "").strip():
+            return lv
+    return None
+
+
 def update_fields(db: Session, project: Project, asset: NerAsset, values: dict, *,
                   actor: str = "user") -> NerAsset:
     changed: dict[str, Any] = {}
@@ -619,6 +646,31 @@ def update_fields(db: Session, project: Project, asset: NerAsset, values: dict, 
             value = (value or "").strip().lower() or None
             if value not in (None, "indoor", "outdoor"):
                 raise RegisterError("indoor / outdoor must be “indoor”, “outdoor” or empty")
+        if key == "level":
+            # 5.8.0 (asked by two analysts, 17 Nov 2026): the NER's
+            # level, chosen like indoor / outdoor. Written as the titles write
+            # it ("2" -> "LEVEL 02") and kept as chosen by hand: no page level
+            # overwrites it. Empty gives the NER back its sheet's level.
+            from .domain.consolidation import normalise_level
+            import unicodedata
+            if value is not None and not isinstance(value, str):
+                raise RegisterError("a level is text")
+            raw = value or ""
+            # 5.8.0-rc2 (T3-4): invisible characters too - a zero-width space
+            # looks blank, a direction override turns the text around.
+            if any(ord(ch) < 32 or 127 <= ord(ch) < 160
+                   or unicodedata.category(ch) in ("Cf", "Co", "Cs") for ch in raw):
+                raise RegisterError("a level cannot contain control or invisible characters")
+            # T3-6: refused, never cut
+            if len(" ".join(raw.split())) > 40:
+                raise RegisterError("a level has at most 40 characters")
+            value = normalise_level(raw)
+            src = "manual" if value else None
+            if value is None:
+                value = _sheet_level(db, asset)
+            if asset.level_source != src:
+                changed["level_source"] = {"from": asset.level_source, "to": src}
+                asset.level_source = src
         if getattr(asset, key) != value:
             changed[key] = {"from": getattr(asset, key), "to": value}
             setattr(asset, key, value)
@@ -850,6 +902,24 @@ def set_occurrence_link(db: Session, project: Project, element: Element, *,
            justification=reason,
            payload={"element_id": element.id, "from": before,
                     "to": {"asset_id": asset_id, "status": status}})
+    # The NER the marker left, when it was its last marker (5.7.0, tester
+    # F4): it stayed in the register, live, with no marker on any sheet - a
+    # "ghost" counted in the NER list. It leaves the register as a NER whose
+    # last marker is deleted does, and Restore brings it back.
+    old_id = before["asset_id"]
+    if old_id is not None and old_id != asset_id:
+        db.flush()
+        old = db.get(NerAsset, old_id)
+        left = db.execute(select(Element.id).where(
+            Element.ner_asset_id == old_id, Element.scenario_id.is_(None)).limit(1)).first()
+        if old is not None and old.deleted_at is None and old.merged_into_id is None \
+                and not old.locked and left is None:
+            # The reason says what happened (5.7.0-rc2, T1-8): linked to
+            # another NER, or simply unlinked.
+            what = ("was linked to another NER" if asset_id is not None
+                    else "was unlinked from it")
+            soft_delete(db, project, old, actor=actor,
+                        reason=f"its last marker (element {element.id}) {what}")
     db.commit()
     return element
 
@@ -1048,7 +1118,11 @@ def consolidate(db: Session, project: Project, primary_id: int, duplicate_id: in
         },
         "primary_before": {"aliases": list(primary.aliases or []),
                            "confidence": primary.confidence,
-                           "total_ports": primary.total_ports},
+                           "total_ports": primary.total_ports,
+                           # 5.8.0-rc2 (T3-3): the level, so an undo takes back
+                           # one the merge brought
+                           "level": primary.level,
+                           "level_source": primary.level_source},
     }
 
     for e in list(dup.occurrences):
@@ -1069,6 +1143,7 @@ def consolidate(db: Session, project: Project, primary_id: int, duplicate_id: in
         primary.total_ports = dup.total_ports
     if not primary.level and dup.level:
         primary.level = dup.level
+        primary.level_source = dup.level_source      # typed by hand stays "by you"
     if not primary.building and dup.building:
         primary.building = dup.building
     primary.updated_by = actor
@@ -1131,6 +1206,9 @@ def undo_consolidation(db: Session, project: Project, consolidation_id: int, *,
             primary.confidence = pb["confidence"]
         if "total_ports" in pb:
             primary.total_ports = pb["total_ports"]
+        if "level" in pb:
+            primary.level = pb["level"]
+            primary.level_source = pb.get("level_source")
         primary.updated_by = actor
 
     rec.undone_at = _now()

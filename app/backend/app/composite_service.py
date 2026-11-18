@@ -257,6 +257,9 @@ def plan(db: Session, project: Project) -> list[dict]:
         groups = []
         for g in C.plan_groups(page_facts(db, d)):
             m = built.pop(g["key"], None)
+            if m is None:
+                old = next((k for k in built if C.same_group(k, g["key"])), None)
+                m = built.pop(old) if old is not None else None
             groups.append({**g, "sheet_count": len(g["pages"]),
                            "map": summary(m, d) if m else None})
         # A map whose group the book no longer has (the book was re-read).
@@ -323,9 +326,12 @@ def build(db: Session, project: Project, drawing: Drawing, *, only: Optional[lis
 def _build_rows(db, project, drawing, groups, rows, built, held, prog, actor) -> None:
     for i, g in enumerate(groups):
         prog(0.85 + 0.15 * i / max(1, len(groups)), f"{g['label']}: composing the picture")
-        row = db.execute(select(CompositeMap).where(
-            CompositeMap.drawing_id == drawing.id,
-            CompositeMap.group_key == g["key"])).scalar_one_or_none()
+        cands = [m for m in db.execute(select(CompositeMap).where(
+            CompositeMap.drawing_id == drawing.id)).scalars()
+            if C.same_group(m.group_key, g["key"])]
+        row = next((m for m in cands if m.group_key == g["key"]), cands[0] if cands else None)
+        if row is not None and row.group_key != g["key"]:
+            row.group_key = g["key"]                # rc3: the level key's one spelling
         excluded = {s["page"] for s in (row.sheets if row else []) if s.get("excluded")}
         # A sheet a person moved stays where they put it (5.3.0).
         manual = {s["page"]: s for s in (row.sheets if row else [])
@@ -747,6 +753,7 @@ def overlay(db: Session, project: Project, cmap: CompositeMap) -> dict:
         pts = ner_pts.get(aid, [])
         crit = a.kind == "NER_CRITICAL"
         rec = {"asset_id": aid, "name": a.display_name, "code": a.code,
+               "note": (a.notes or "").strip(),
                "critical": crit, "classification": a.classification,
                "classification_confirmed": a.classification_confirmed,
                "locked": bool(a.locked), "environment": a.environment,
@@ -1066,13 +1073,15 @@ def undo_move(db: Session, project: Project, audit_id: int, *, actor: str = "use
 # ---------------------------------------------------------------------------
 
 def export_pdf(db: Session, project: Project, out_path: Path, *, maps: Optional[list[int]] = None,
-               progress: Progress = None, draw_legend: bool = True) -> dict:
+               progress: Progress = None, draw_legend: bool = True,
+               draw_notes: bool = False) -> dict:
     """One page per composite map — the sheets as placed, every NER with its
     reach (the general and the photographer limits, straight line), the Wi-Fi
     points and the other rooms. The legend on the first page only."""
     import pymupdf
-    from .domain.reports import (COLOURS, DISCLAIMER, MARKER_LABEL_FONT, PRODUCED_BY,
-                                 _draw_wifi, PageSpace)
+    from .domain.reports import (COLOURS, DISCLAIMER, MARKER_LABEL_FONT,
+                                 NOTE_SIZE, PRODUCED_BY, _draw_wifi, PageSpace,
+                                 draw_note)
     prog = progress or (lambda *_: None)
     rows = [m for m in maps_of(db, project.id) if m.frame and (maps is None or m.id in maps)]
     if not rows:
@@ -1141,6 +1150,14 @@ def export_pdf(db: Session, project: Project, out_path: Path, *, maps: Optional[
             page.insert_text(pymupdf.Point(c.x + 17 * sz, c.y - 8 * sz), n["name"],
                              fontsize=max(6.0, 18 * sz), fontname=MARKER_LABEL_FONT,
                              color=(0, 0, 0), render_mode=0)
+            # The NER's note, when asked for (5.7.0): under its name,
+            # wrapped, on a pale ground. Off by default - it may cover the map.
+            if draw_notes and n.get("note"):
+                fs = max(NOTE_SIZE, 12 * sz)
+                ns = PageSpace(page)
+                draw_note(ns, n["note"], left=c.x + 17 * sz - 3, top=c.y + 2 * sz,
+                          above=c.y - 10 * sz, size=fs, width=150 * fs / NOTE_SIZE)
+                ns.commit()
         for o in data["others"]:
             c = P(o["X"], o["Y"])
             page.insert_text(pymupdf.Point(c.x + 11 * sz, c.y - 6 * sz), o["label"],
@@ -1182,7 +1199,9 @@ def export_pdf(db: Session, project: Project, out_path: Path, *, maps: Optional[
         if draw_legend and i == 0:
             _legend(page, k, data["limits"])
         pages += 1
-    doc.save(str(out_path), garbage=3, deflate=True)
+    # A locked output (the last map PDF still open) said in words (rc3, T2-2).
+    from .export_guard import saving
+    saving(out_path, doc.save, str(out_path), garbage=3, deflate=True)
     doc.close()
     prog(1.0, "done")
     return {"pages": pages}

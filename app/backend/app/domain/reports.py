@@ -126,6 +126,88 @@ MARKER_LABEL_SIZE = 9.0
 #: from across a key plan (Marcelo, 14 Oct 2026); the viewer does the same.
 REFERENCE_LABEL_SIZE = MARKER_LABEL_SIZE + 2.0
 MARKER_LABEL_FONT = "hebo"          # Helvetica-Bold, one of PyMuPDF's base-14 names
+#: A NER's note on the marked-up PDF (5.7.0, asked for with "with NER
+#: notes"): the size of its text, the width it wraps at, and its font.
+NOTE_SIZE = 6.5
+NOTE_WIDTH = 150.0
+#: The note's font is Helvetica's shapes embedded as a Unicode font
+#: (5.7.0-rc2, T1-2): the base-14 "helv" is written with a Latin-1 encoding,
+#: and a note typed with an en dash, curly quotes, the euro sign or an arrow
+#: came out with "·" in their place. Embedded once per file (about 30 KB).
+NOTE_FONT = "rrnote"
+#: Characters Helvetica has no shape for (a check mark, a double arrow, CJK)
+#: are written in MuPDF's built-in fallback font (5.7.0-rc3, T2-6). It is
+#: embedded only in a file whose notes need it (about 3.5 MB, once per file);
+#: a character neither font has is written "?", never as nothing.
+NOTE_FALLBACK = "rrfall"
+_NOTE_FONT_OBJ: Optional["pymupdf.Font"] = None
+_NOTE_FALLBACK_OBJ: Optional["pymupdf.Font"] = None
+
+
+def note_font() -> "pymupdf.Font":
+    global _NOTE_FONT_OBJ
+    if _NOTE_FONT_OBJ is None:
+        _NOTE_FONT_OBJ = pymupdf.Font("helv")
+    return _NOTE_FONT_OBJ
+
+
+def note_fallback_font() -> "pymupdf.Font":
+    global _NOTE_FALLBACK_OBJ
+    if _NOTE_FALLBACK_OBJ is None:
+        _NOTE_FALLBACK_OBJ = pymupdf.Font(ordering=0)
+    return _NOTE_FALLBACK_OBJ
+
+
+def _note_font_named(name: str) -> "pymupdf.Font":
+    return note_fallback_font() if name == NOTE_FALLBACK else note_font()
+
+
+def note_runs(text: str) -> list[tuple[str, str]]:
+    """``text`` as runs of (characters, font name): Helvetica where it has
+    the character, the fallback font where only it has it, "?" otherwise."""
+    runs: list[list[str]] = []
+    for ch in str(text or ""):
+        if ch.isspace() or note_font().has_glyph(ord(ch)):
+            fn = NOTE_FONT
+        elif note_fallback_font().has_glyph(ord(ch)):
+            fn = NOTE_FALLBACK
+        else:
+            ch, fn = "?", NOTE_FONT
+        if runs and runs[-1][1] == fn:
+            runs[-1][0] += ch
+        else:
+            runs.append([ch, fn])
+    return [(t, fn) for t, fn in runs]
+
+
+def note_text_length(text: str, size: Optional[float] = None) -> float:
+    return sum(_note_font_named(fn).text_length(t, fontsize=size or NOTE_SIZE)
+               for t, fn in note_runs(text))
+
+
+def use_note_font(page: "pymupdf.Page", fallback: bool = False) -> None:
+    """Make the note's font (and, when needed, the fallback) available on
+    ``page``, once per page."""
+    names = {f[4] for f in page.get_fonts()}
+    if NOTE_FONT not in names:
+        page.insert_font(fontname=NOTE_FONT, fontbuffer=note_font().buffer)
+    if fallback and NOTE_FALLBACK not in names:
+        page.insert_font(fontname=NOTE_FALLBACK, fontbuffer=note_fallback_font().buffer)
+
+
+def place_note_box(x0: float, y0: float, w: float, h: float, page_w: float,
+                   page_h: float, *, above: Optional[float] = None,
+                   margin: float = 2.0) -> tuple[float, float]:
+    """Where a note box of ``w`` x ``h`` wanted at ``(x0, y0)`` goes so it
+    stays on the sheet (5.7.0-rc2, T1-3: "wrapped, never cut"). Pushed in
+    from the left and right edges; when it would run off the bottom it goes
+    above the marker (its bottom at ``above``) instead, and as a last resort
+    is pushed up to fit."""
+    x0 = min(max(x0, margin), max(margin, page_w - w - margin))
+    if y0 + h > page_h - margin:
+        y0 = (above - h) if above is not None and above - h >= margin \
+            else page_h - h - margin
+    return x0, max(y0, margin)
 #: A Wi-Fi point on the exported PDF (4.4.0): the sign a little larger and its
 #: name at the NERs' size, in a darker blue than the sign on a white tag —
 #: the 6.5 pt cyan name straight on the linework was reported unreadable.
@@ -497,6 +579,97 @@ def _point_on(ner: Optional[NER], page: int, near) -> Optional[Point]:
     return ner.point if ner.point.page == page else None
 
 
+def fit_note(note: str, page_w: float, page_h: float, size: float = NOTE_SIZE,
+             width: float = NOTE_WIDTH, margin: float = 2.0
+             ) -> tuple[list[str], float, float]:
+    """The note's lines, size and width so that its box fits on the sheet
+    (5.7.0-rc3, T2-5): a note taller than the sheet is first written wider,
+    up to the sheet's width, then smaller, down to 2.5 pt - never cut."""
+    avail_w = max(20.0, page_w - 2 * margin - 6)
+    avail_h = max(10.0, page_h - 2 * margin - 3)
+    width = min(width, avail_w)
+    while True:
+        lines = wrap_note(note, width=width, size=size)
+        if size * 1.25 * len(lines) <= avail_h:
+            return lines, size, width
+        if width < avail_w:
+            width = min(avail_w, width * 1.5)
+            continue
+        if size <= 2.5:
+            return lines, size, width
+        size = max(2.5, size * 0.85)
+
+
+def draw_note(sp: "PageSpace", note: str, *, top: float, above: float,
+              centre: Optional[float] = None, left: Optional[float] = None,
+              size: float = NOTE_SIZE, width: float = NOTE_WIDTH,
+              border=(0.4, 0.4, 0.4)) -> None:
+    """A NER's note on a pale box: wrapped, kept on the sheet, every
+    character drawn. Placed under the NER (``top``), centred on ``centre`` or
+    starting at ``left``; above the NER (its bottom at ``above``) when it
+    does not fit below."""
+    lines, size, width = fit_note(note, sp.width, sp.height, size, width)
+    if not lines:
+        return
+    runs = [note_runs(t) for t in lines]
+    lw = max(sum(_note_font_named(fn).text_length(r, fontsize=size) for r, fn in rl)
+             for rl in runs)
+    lh = size * 1.25
+    bw, bh = lw + 6, lh * len(lines) + 3
+    x0 = left if left is not None else (centre or 0.0) - bw / 2
+    bx0, by0 = place_note_box(x0, top, bw, bh, sp.width, sp.height, above=above)
+    use_note_font(sp.page, fallback=any(fn == NOTE_FALLBACK for rl in runs for _, fn in rl))
+    # A sheet with a /UserUnit (5.8.0): PyMuPDF scales a drawn rectangle and
+    # an inserted font size by the unit, but not the text's position, so the
+    # lines overlapped and the box grew. The box and the font are given at
+    # 1/unit, which lands them at the size laid out here.
+    u = float(getattr(sp, "_uu", 1.0) or 1.0)
+    sp.box(bx0, by0 + bh - bh / u, bx0 + bw / u, by0 + bh, color=border, fill=(1, 1, 0.88),
+           fill_opacity=0.92, width=0.4 / u)
+    for k, rl in enumerate(runs):
+        x = bx0 + 3
+        y = by0 + 1 + lh * (k + 1) - size * 0.2
+        for r, fn in rl:
+            sp.text(x, y, r, fontsize=size / u, fontname=fn, color=(0.1, 0.1, 0.1))
+            x += _note_font_named(fn).text_length(r, fontsize=size)
+
+
+def wrap_note(text: str, width: float = NOTE_WIDTH, size: float = NOTE_SIZE,
+              fontname: str = NOTE_FONT) -> list[str]:
+    """A note as lines no wider than ``width`` points: broken between words,
+    a word longer than the width broken where it must be, the person's own
+    line breaks kept. Nothing is cut off - a long note is a tall box."""
+    out: list[str] = []
+
+    def w(t: str) -> float:
+        if fontname == NOTE_FONT:
+            return note_text_length(t, size)
+        return pymupdf.get_text_length(t, fontname=fontname, fontsize=size)
+
+    for para in str(text or "").replace("\r", "").split("\n"):
+        line = ""
+        for word in para.split():
+            while w(word) > width:          # a word wider than the box
+                k = len(word)
+                while k > 1 and w(word[:k]) > width:
+                    k -= 1
+                if line:
+                    out.append(line)
+                    line = ""
+                out.append(word[:k])
+                word = word[k:]
+            cand = f"{line} {word}" if line else word
+            if line and w(cand) > width:
+                out.append(line)
+                line = word
+            else:
+                line = cand
+        out.append(line)
+    while out and not out[-1]:
+        out.pop()
+    return out
+
+
 def export_marked_pdf_job(source_pdf: str, out_path: str, *,
                           page_keys: Optional[dict] = None,
                           sheet_labels: Optional[dict] = None,
@@ -539,6 +712,7 @@ def export_marked_pdf(
     strip_annotations: bool = True,
     page_key=None,
     sheet_text=None,
+    draw_notes: bool = False,
 ) -> str:
     """Write a copy of the drawing with coverage overlays and a permanent legend.
 
@@ -786,6 +960,17 @@ def export_marked_pdf(
                 sp.text(tx, ty, n.label, fontsize=size,
                         fontname=MARKER_LABEL_FONT,
                         color=LABEL_COLOURS.get(n.kind, colour))
+                # The person's note, when the export asks for it (5.7.0,
+                # Marcelo, 16 Nov 2026: off by default - it may cover the
+                # drawing; it is for the analyst to remember why, in the
+                # meeting with the design team). Under the name tag, wrapped,
+                # on every sheet the NER is drawn on.
+                note = (getattr(n, "user_note", "") or "").strip()
+                # A NER's note only - never a TER's, an IDF's or a reference's.
+                if draw_notes and note and n.kind in (ElementKind.NER_CRITICAL,
+                                                      ElementKind.NER_NONCRITICAL):
+                    draw_note(sp, note, centre=npt.x, top=ty + 5,
+                              above=npt.y - MARKER_RADIUS - 3, border=colour)
 
             if draw_legend and page_no == legend_page:
                 _draw_legend(sp, scenario, rules, scale,
@@ -855,7 +1040,7 @@ def _write_sheet(ws, headers: list[str], rows: Iterable[Sequence]) -> None:
 
 
 #: "NERs and ports", column by column (3.0.0 order).
-NER_SHEET_HEADERS = ["NER", "Full name", "Space code", "Page", "Critical",
+NER_SHEET_HEADERS = ["NER", "Full name", "Space code", "Page", "Level", "Critical",
                      "Indoor / outdoor", "Spaces served", "Ports assigned",
                      "Total ports", "Utilisation %", "Wireless points",
                      "of which wireless ports", "Fibre runs to TER", "Notes"]
@@ -1044,6 +1229,7 @@ def export_workbook(
     ner_info: Optional[dict[str, dict]] = None,
     wifi_info: Optional[dict[int, dict]] = None,
     sheet_cell=None,
+    own_venues: Optional[Iterable[str]] = None,
 ) -> str:
     """``demands`` are the TEAP spaces **in scope** — the ones that request
     ports. ``left_out`` lists the rest as ``(code, name, TEAP lines, note)`` so
@@ -1325,7 +1511,11 @@ def export_workbook(
                    # 2.18.0: the naming sheet's full name, venue code + NER name
                    ner_full_name(venue_code, i["label"]),
                    (ner_info.get(i["key"]) or {}).get("space_code") or "",
-                   pc(i["page"]), "yes" if i["critical"] else "no",
+                   pc(i["page"]),
+                   # 5.8.0 (asked by the team, 17 Nov 2026): the NER's level, chosen
+                   # on the NERs screen or the Inspector, else its sheet's.
+                   (ner_info.get(i["key"]) or {}).get("level") or "",
+                   "yes" if i["critical"] else "no",
                    i.get("environment") or "",
                    len(i["spaces"]), round(i["assigned_ports"], 1),
                    i["total_ports"], None,
@@ -1397,10 +1587,17 @@ def export_workbook(
                      left_out)
 
     ws = wb.create_sheet("Exceptions")
+    # The TEAP's own errors first (5.7.0, tester R7-F11): the workbook never
+    # said "TEAP data error", and a space whose every line was wrong read as
+    # an ordinary row with 0 ports. One row per wrong value, as the
+    # Exceptions step lists them.
+    teap_errors = [(d.space_key, d.space_name, "", "TEAP data error", "teap_data_error", w)
+                   for d in demands for w in (getattr(d, "warnings", None) or [])
+                   if str(w).startswith("TEAP data error")]
     _write_sheet(ws, ["Space key", "Space name", "Page", "Status", "Status detail", "Detail"],
-                 ((e["space_key"], e["space_name"], pc(e.get("page")) or "",
-                   GROUP_LABEL[group_of(e["status"])], e["status"], e["detail"])
-                  for e in coverage.exceptions))
+                 teap_errors + [(e["space_key"], e["space_name"], pc(e.get("page")) or "",
+                                 GROUP_LABEL[group_of(e["status"])], e["status"], e["detail"])
+                                for e in coverage.exceptions])
 
     # The matching evidence. It was taken off the TEAP × drawing screen, where
     # a confidence percentage next to a room name invited people to trust the
@@ -1470,7 +1667,8 @@ def export_workbook(
                     for r in match_rows if r.get("drawing_space_id") and not r.get("confirmed")]
         _write_sheet(ws, ["Exception type", "Code", "Name", "Detail"], ex_rows)
 
-    _write_reconciliation(wb.create_sheet("Reconciliation"), coverage, demands, left_out)
+    _write_reconciliation(wb.create_sheet("Reconciliation"), coverage, demands, left_out,
+                          venue_code=venue_code, own_venues=own_venues)
 
     ws = wb.create_sheet("Scales")
     _write_sheet(ws, ["Page", "Scale label", "Source", "Metres per PDF unit", "Confirmed"],
@@ -1483,7 +1681,9 @@ def export_workbook(
 
 
 def _write_reconciliation(ws, coverage: CoverageResult, demands: Sequence,
-                          left_out: Optional[Sequence[tuple]]) -> None:
+                          left_out: Optional[Sequence[tuple]],
+                          venue_code: Optional[str] = None,
+                          own_venues: Optional[Iterable[str]] = None) -> None:
     """The TEAP's totals against the analysis's, and why they differ (5.3.0).
 
     Marcelo, 16 Oct 2026: "Os totais precisam bater sempre... e qdo não bater
@@ -1532,9 +1732,27 @@ def _write_reconciliation(ws, coverage: CoverageResult, demands: Sequence,
     out.append(("", "", "", "", ""))
     out.append(("Pending ports, by reason", "Spaces", "Ports", "", ""))
     reasons: dict[str, list] = {}
+    # The project's venue by its code and by every name its TEAP was filtered
+    # on (5.7.0-rc2, T1-7): a TEAP with venue names only, imported with a
+    # filter on the name, is all of this venue.
+    own_set = {re.sub(r"[\s.\-_/]+", "", str(v or "")).upper()
+               for v in [venue_code, *(own_venues or [])]} - {""}
+    # 5.8.0: a TEAP imported with a venue filter holds only rows the filter
+    # kept - this venue's, whatever their code column says. Only an import
+    # of every venue can bring another venue's rows in.
+    if "*" in (own_venues or []):
+        own_set = set()
     for a in pending:
         why = (PENDING_NO_ROOM if a.area.meta.get("unplaced")
                else STATUS_WORDS.get(a.status, a.status.value if a.status else ""))
+        # A line of another venue (an import of every venue) has no room on
+        # this project's drawings by nature: it is said so, not filed under
+        # "no room on the drawing" with the rooms still to find (5.7.0,
+        # tester F6).
+        vk = re.sub(r"[\s.\-_/]+", "", str(a.space_key).split("|", 1)[0]).upper() \
+            if "|" in str(a.space_key) else ""
+        if own_set and vk and vk not in own_set:
+            why = f"another venue ({str(a.space_key).split('|', 1)[0]}) - not on these drawings"
         reasons.setdefault(why, []).append(a)
     for why, items in sorted(reasons.items(), key=lambda kv: -sum(
             float(a.ports_required or 0) for a in kv[1])):
@@ -1583,6 +1801,14 @@ def _order_and_colour_sheets(wb) -> None:
                         and not _OWN_FORMULA_RX.match(cell.value):
                     cell.value = "'" + cell.value
                     cell.data_type = "s"
+                # Kept as text by Excel's own "text" mark, not by an
+                # apostrophe printed in the cell (5.7.0, tester R7-F7): the
+                # cell reads "=1+" as typed and is still never a formula.
+                if cell.data_type == "s" and isinstance(cell.value, str) \
+                        and cell.value[:1] == "'" and cell.value[1:2] in ("=", "+", "-", "@"):
+                    cell.value = cell.value[1:]
+                    cell.data_type = "s"
+                    cell.quotePrefix = True
     rank = {name: i for i, name in enumerate(SHEET_ORDER)}
     wb._sheets.sort(key=lambda ws: rank.get(ws.title, len(SHEET_ORDER)))
     for i, ws in enumerate(wb.worksheets):

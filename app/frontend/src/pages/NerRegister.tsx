@@ -33,6 +33,7 @@ import { NamingReference } from "../components/NamingReference";
 import { DISCLAIMER, KIND_COLOUR, KIND_LABEL, REFERENCE_KINDS, VISUAL_ONLY_KINDS } from "../lib/notation";
 import { t } from "../lib/i18n";
 import { useSort } from "../components/useSort";
+import { LevelField, projectLevels } from "../components/LevelField";
 import { PageButton, pageName, sheetNo } from "./panels";
 import { nerNameKey } from "./Viewer";
 
@@ -350,6 +351,10 @@ function RegisterTable({ ctx, rows, all, expanded, setExpanded, busy, act }: any
                     title={t("Where the rack stands — it decides the kind of rack the venue is sent. A column of the NERs sheet in the workbook.")}>
                 {t("Indoor / outdoor")}
               </s.Th>
+              <s.Th k="level" get={(r) => r.level || "~"}
+                    title={t("The NER's level: chosen here or in the Drawing viewer's Inspector, else the level of its sheet. A column of the NERs sheet in the workbook.")}>
+                {t("Level")}
+              </s.Th>
               <s.Th k="cap" get={(r) => r.capacity?.total_ports}>{t("Capacity (ports)")}</s.Th>
               <s.Th k="locked">{t("Lock")}</s.Th>
               <s.Th k="confirmed">{t("Confirm")}</s.Th>
@@ -373,7 +378,7 @@ function RegisterTable({ ctx, rows, all, expanded, setExpanded, busy, act }: any
             ))}
             {rows.length === 0 && (
               <tr>
-                <td colSpan={11} className="muted">
+                <td colSpan={12} className="muted">
                   {all.length === 0
                     ? t("No NER yet. Import a drawing, or place one by hand in the Drawing viewer with the +NER tools.")
                     : t("No row matches this filter.")}
@@ -559,6 +564,15 @@ function NerRow({ ctx, r, sameName = [], allRows = [], busy, act, expanded, togg
             <option value="outdoor">{t("Outdoor")}</option>
           </select>
         </td>
+        {/* The NER's level (5.8.0): picked from the levels the sheets state
+            or typed; kept as chosen; empty gives back the sheet's level. */}
+        <td style={{ minWidth: 120 }}>
+          <LevelField id={`r${r.id}`} value={r.level} source={r.level_source} sheetLevel={r.sheet_level}
+                      pageLevels={r.page_levels || []}
+                      levels={projectLevels(p, (allRows || []).map((o: any) => o.level))}
+                      disabled={busy || !editable}
+                      onSave={(v) => act(() => api.patchNer(p.id, r.id, { level: v }))} />
+        </td>
         <td style={{ width: 110 }}>
           <input
             type="number"
@@ -607,7 +621,7 @@ function NerRow({ ctx, r, sameName = [], allRows = [], busy, act, expanded, togg
 
       {expanded && (
         <tr>
-          <td colSpan={11} style={{ background: "var(--panel-2)" }}>
+          <td colSpan={12} style={{ background: "var(--panel-2)" }}>
             <NerDetail ctx={ctx} r={r} busy={busy} act={act} />
           </td>
         </tr>

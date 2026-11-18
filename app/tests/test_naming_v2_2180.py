@@ -115,10 +115,10 @@ def test_the_ners_sheet_has_a_full_name_column_with_the_venue_code(client):
     ws = wb["NERs and ports"]
     head = [c.value for c in ws[1]]
     # 3.0.0: Full name is column B, the space code C, then the old order
-    assert head[:5] == ["NER", "Full name", "Space code", "Page", "Critical"]
+    assert head[:6] == ["NER", "Full name", "Space code", "Page", "Level", "Critical"]
     row = [c.value for c in ws[2]]
     assert row[0] == "NERc_01.1" and row[1] == "TST_NERc_01.1"
-    assert ws.auto_filter.ref.startswith("A1:N")
+    assert ws.auto_filter.ref.startswith("A1:O")
     # the TOTAL row is still there, and leaves the name column alone
     totals = [r for r in ws.iter_rows(values_only=True) if r and r[0] == "TOTAL"]
     assert len(totals) == 1 and totals[0][1] is None

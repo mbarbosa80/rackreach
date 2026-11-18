@@ -13,6 +13,7 @@ import { api } from "../lib/api";
 import { KIND_COLOUR, KIND_LABEL, REFERENCE_KINDS, VISUAL_ONLY_KINDS } from "../lib/notation";
 import { t } from "../lib/i18n";
 import { useSort } from "../components/useSort";
+import { LevelField, projectLevels } from "../components/LevelField";
 import { PageButton, pageName, sheetNo } from "./panels";
 import { nerNameKey } from "./Viewer";
 
@@ -109,6 +110,10 @@ export function NersPanel({ ctx }: { ctx: Ctx }) {
             <tr>
               <s.Th k="display_name">{t("Name")}</s.Th>
               <s.Th k="classification">{t("Criticality")}</s.Th>
+              <s.Th k="level" get={(r: any) => r.level || "~"}
+                    title={t("The NER's level: chosen here or in the Drawing viewer's Inspector, else the level of its sheet.")}>
+                {t("Level")}
+              </s.Th>
               <s.Th k="page" get={(r: any) => r.canonical?.page}>{t("Pages")}</s.Th>
               <th />
             </tr>
@@ -118,7 +123,7 @@ export function NersPanel({ ctx }: { ctx: Ctx }) {
               <NerRow key={r.id} ctx={ctx} r={r} all={rows} busy={busy} act={act} />
             ))}
             {rows.length === 0 && (
-              <tr><td colSpan={4} className="muted">
+              <tr><td colSpan={5} className="muted">
                 {reg.loading ? t("Loading…") : t("No NER yet — place them from the drawing on the Scale screen, or draw them in the Drawing viewer.")}
               </td></tr>
             )}
@@ -205,6 +210,13 @@ function NerRow({ ctx, r, all, busy, act }: any) {
           <option value="non_critical">{t("Non-critical")}</option>
           {r.classification === "pending" && <option value="pending">{t("Not stated on the drawing")}</option>}
         </select>
+      </td>
+      <td style={{ minWidth: 120 }}>
+        <LevelField id={`r${r.id}`} value={r.level} source={r.level_source} sheetLevel={r.sheet_level}
+                    pageLevels={r.page_levels || []}
+                    levels={projectLevels(p, (all || []).map((o: any) => o.level))}
+                    disabled={busy || !editable}
+                    onSave={(v) => act(() => api.patchNer(p.id, r.id, { level: v }))} />
       </td>
       <td>
         {pages.length === 0 && <span className="muted small">{t("no position")}</span>}

@@ -285,8 +285,8 @@ def test_indoor_outdoor_is_a_register_field_with_a_workbook_column(client):
     wb = openpyxl.load_workbook(settings.exports_dir / f"project_{pid}" / r.json()["file"])
     ws = wb["NERs and ports"]
     head = [c.value for c in ws[1]]
-    assert head[5] == "Indoor / outdoor"
-    assert [c.value for c in ws[2]][5] == "outdoor"
+    assert head[6] == "Indoor / outdoor"          # 5.8.0: after Level
+    assert [c.value for c in ws[2]][6] == "outdoor"
     summary = {ws.cell(row=i, column=1).value: ws.cell(row=i, column=2).value
                for ws in (wb["Summary"],) for i in range(2, wb["Summary"].max_row + 1)}
     assert summary["Totals: NERs outdoor"] == 1 and summary["Totals: NERs indoor"] == 0

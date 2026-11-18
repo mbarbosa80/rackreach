@@ -63,6 +63,10 @@ class NER:
     confidence: float = 1.0
     proposed: bool = False
     notes: list[str] = field(default_factory=list)
+    #: The note a person wrote on the NER (5.7.0), on its own: ``notes``
+    #: also carries the app's sentences. Shown on hover in the viewer and,
+    #: when asked for, printed beside the NER on the marked-up PDF.
+    user_note: str = ""
     #: "indoor" / "outdoor" / None (2.14.0): where the rack stands — it decides
     #: the kind of rack the venue is sent. Carried into the workbook, never
     #: used in a measurement.
@@ -796,8 +800,19 @@ def compute_coverage(
                             elif opts and opts[0] is not r:
                                 shorter = opts[0]
                         else:
-                            r = network.route_length_m(here_pt, npt, occ_scale,
-                                                       level_only=has_verticals)
+                            # The shortest connection that counts, as across
+                            # levels (5.7.0, owner's decision of 16 Nov 2026):
+                            # of two trays tied for the nearest, the shorter
+                            # route was kept and, when it did not count, the
+                            # space went to a straight line although the
+                            # other tray's route counted.
+                            opts = network.route_options(here_pt, npt, occ_scale,
+                                                         level_only=has_verticals)
+                            r = next((o for o in opts if route_counts(o)), None)
+                            if opts and r is None:
+                                r = opts[0]
+                            elif opts and opts[0] is not r:
+                                shorter = opts[0]
                             if has_verticals:
                                 crossing = [o for o in network.route_options(
                                     here_pt, npt, occ_scale) if o["crosses_levels"]]
@@ -837,7 +852,7 @@ def compute_coverage(
                         ev.assumptions.append(
                             _not_counting_note(ner.label, shorter, "by a shorter connection")
                             + f"; measured through "
-                              f"{', '.join(str(v) for v in r['vertical_links']) or 'the route'}"
+                              f"{', '.join(str(v) for v in r['vertical_links']) or 'the other route'}"
                               f" instead, which counts.")
                     if detour is not None:
                         links = ", ".join(str(v) for v in detour["vertical_links"])
@@ -989,8 +1004,25 @@ def compute_coverage(
         if cross_routes:
             here_level = [t for t in scored if t[1].key not in cross_routes]
             if same_routed:
-                here_level = [t for t in here_level
-                              if t[1].key in same_routed or t[1].key == keep]
+                routed_here = [t for t in here_level
+                               if t[1].key in same_routed or t[1].key == keep]
+                # A critical space (criticality enforced) whose routed floor
+                # NERs are none of them critical-rated within the limit keeps
+                # the critical-rated floor NERs within the limit in a straight
+                # line, as the route rule does on its own level (5.7.0; T1-4
+                # covered the space's own level only).
+                if is_critical and not any(
+                        _criticality_ok(is_critical, t[1])
+                        and t[2].effective_distance_m is not None
+                        and t[2].effective_distance_m <= t[2].limit_m
+                        for t in routed_here):
+                    routed_here += [t for t in here_level
+                                    if t not in routed_here
+                                    and _criticality_ok(is_critical, t[1])
+                                    and t[2].effective_distance_m is not None
+                                    and t[2].effective_distance_m <= t[2].limit_m]
+                    routed_here.sort(key=lambda t: (t[0], t[1].key))
+                here_level = routed_here
             for t in here_level:
                 why = _floor_fails(t)
                 if why is None:

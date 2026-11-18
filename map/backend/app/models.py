@@ -127,6 +127,10 @@ class Page(Base):
     needs_ocr: Mapped[bool] = mapped_column(Boolean, default=False)
     sheet_title: Mapped[Optional[str]] = mapped_column(String(300), default=None)
     level: Mapped[Optional[str]] = mapped_column(String(80), default=None)
+    #: "manual" when a person typed the level on the Scale screen (5.7.0)
+    #: because the title block states none; NULL when it was read off the
+    #: drawing (or is not known).
+    level_source: Mapped[Optional[str]] = mapped_column(String(16), default=None)
     building: Mapped[Optional[str]] = mapped_column(String(80), default=None)
     #: The drawing number printed in the title block (``VFF-401-CSL-O``), read
     #: from the ``DRAWING NUMBER`` label on import. NULL means never looked;
@@ -757,6 +761,10 @@ class NerAsset(Base):
     building: Mapped[Optional[str]] = mapped_column(String(80), default=None)
     sector: Mapped[Optional[str]] = mapped_column(String(80), default=None)
     level: Mapped[Optional[str]] = mapped_column(String(80), default=None)
+    #: "manual" when a person chose the NER's level on the NERs screen or in
+    #: the Inspector (5.8.0); NULL when it came from its sheet. A level chosen
+    #: by hand is never overwritten by a page level.
+    level_source: Mapped[Optional[str]] = mapped_column(String(16), default=None)
     space_name: Mapped[Optional[str]] = mapped_column(String(300), default=None)
     space_code: Mapped[Optional[str]] = mapped_column(String(60), default=None)
     #: "indoor" / "outdoor" / NULL (2.14.0): where the rack stands. It decides

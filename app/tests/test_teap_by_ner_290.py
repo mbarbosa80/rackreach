@@ -70,7 +70,7 @@ def test_teap_by_ner_sits_after_the_flat_sheet_and_adds_up(wb):
     assert [r[0] for r in ner_totals] == ["NER.2", "NER.10", PENDING_NER_LABEL]
 
     # each NER's lines add up to "Ports assigned" on the NERs sheet
-    assigned = {r[0]: r[7] for r in wb["NERs and ports"].iter_rows(min_row=2, values_only=True)
+    assigned = {r[0]: r[8] for r in wb["NERs and ports"].iter_rows(min_row=2, values_only=True)
                 if r[0] and r[0] != "TOTAL"}
     for ner in ("NER.10", "NER.2"):
         s = sum(r[6] for r in details if r[0] == ner)

@@ -272,7 +272,7 @@ def test_the_ners_sheet_carries_full_name_space_code_and_notes(client):
     row = [c.value for c in ws[2]]
     assert row[:3] == ["NERc_04.1", "VAA_NERc_04.1", "TEC.010-004"]
     assert row[-1] == "Move to the athlete's medical station."
-    assert row[head.index("Utilisation %")] == '=IF(OR(I2="",I2=0),"",H2/I2)'
+    assert row[head.index("Utilisation %")] == '=IF(OR(J2="",J2=0),"",I2/J2)'
 
 
 def test_the_sheets_come_in_his_order_with_his_tab_colours(client):

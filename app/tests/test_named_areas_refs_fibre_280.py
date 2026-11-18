@@ -393,12 +393,13 @@ def test_the_fibre_runs_column_counts_two_per_critical_and_one_otherwise(client)
     # The TOTAL row: a blank row apart, live SUM formulas, outside the filter.
     assert ws.cell(row=5, column=1).value is None
     assert ws.cell(row=6, column=1).value == "TOTAL"
-    assert ws.cell(row=6, column=13).value == "=SUM(M2:M4)"
-    assert ws.cell(row=6, column=7).value == "=SUM(G2:G4)"
-    assert ws.cell(row=6, column=5).value == "2 critical / 1 non-critical"
+    # 5.8.0: Level after Page moves every later column one to the right
+    assert ws.cell(row=6, column=14).value == "=SUM(N2:N4)"
+    assert ws.cell(row=6, column=8).value == "=SUM(H2:H4)"
+    assert ws.cell(row=6, column=6).value == "2 critical / 1 non-critical"
     # 4.0.0: the rooms with no indoor / outdoor are said, not left out
-    assert ws.cell(row=6, column=6).value == "0 indoor / 0 outdoor / 3 not said"
-    assert ws.auto_filter.ref == "A1:N4"
+    assert ws.cell(row=6, column=7).value == "0 indoor / 0 outdoor / 3 not said"
+    assert ws.auto_filter.ref == "A1:O4"
 
     summary = {ws.cell(row=r, column=1).value: ws.cell(row=r, column=2).value
                for r in range(2, wb["Summary"].max_row + 1)
@@ -423,7 +424,7 @@ def test_the_fibre_runs_column_counts_two_per_critical_and_one_otherwise(client)
     assert client.get(f"/api/projects/{pid}").json()["settings"]["fibre_runs_critical"] == 3
     wb = _workbook(client, pid)
     ws = wb["NERs and ports"]
-    assert sorted(ws.cell(row=r, column=13).value for r in range(2, 5)) == [1, 3, 3]
+    assert sorted(ws.cell(row=r, column=14).value for r in range(2, 5)) == [1, 3, 3]
     summary = {wb["Summary"].cell(row=r, column=1).value: wb["Summary"].cell(row=r, column=2).value
                for r in range(2, wb["Summary"].max_row + 1)}
     assert summary["Totals: Fibre runs to the TER (total)"] == 7

@@ -61,6 +61,10 @@ class NER:
     confidence: float = 1.0
     proposed: bool = False
     notes: list[str] = field(default_factory=list)
+    #: The note a person wrote on the NER (Map 1.3.0), on its own: ``notes``
+    #: also carries the app's sentences. Shown on hover in the viewer and,
+    #: when asked for, printed beside the NER on the PDFs.
+    user_note: str = ""
     #: "indoor" / "outdoor" / None (2.14.0): where the rack stands — it decides
     #: the kind of rack the venue is sent. Carried into the workbook, never
     #: used in a measurement.
