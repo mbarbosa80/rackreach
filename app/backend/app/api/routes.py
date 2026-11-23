@@ -39,7 +39,7 @@ from ..domain.units import Scale, parse_scale_text, scale_from_ratio, scale_from
 from ..models import (Alias, AuditLog, Drawing, DrawingSpace, Element, Job, KeepDecision,
                       MappingTemplate, NerAsset, NerStatus, Page, Project, RouteSegmentRow,
                       Scenario, SpaceMatchRow, SpaceOccurrenceLink, TeapFile, TeapSpace, User,
-                      VerticalLinkRow,
+                      VerticalLinkRow, PageJointRow,
                       Visibility, Zone)
 
 router = APIRouter()
@@ -757,7 +757,10 @@ def set_page_level(project_id: int, page_no: int, body: PageLevelIn,
     except S.ConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
     except S.ValidationError as exc:
-        raise HTTPException(404, str(exc)) from exc
+        # 404 only for a page that is not there; a level the rule refuses
+        # is 422, as on the NER's field (5.9.0-rc3, T4-7).
+        missing = str(exc).startswith("page ") and str(exc).endswith("not found")
+        raise HTTPException(404 if missing else 422, str(exc)) from exc
 
 
 class KeyPlansIn(BaseModel):
@@ -1607,6 +1610,20 @@ def import_teap(project_id: int, teap_id: int, body: TeapMappingIn,
     t = db.get(TeapFile, teap_id)
     if t is None or t.project_id != p.id:
         raise HTTPException(404, "TEAP file not found")
+    # What the file was imported with before (5.9.0, F2-4): an import that
+    # fails ("nothing to import ... left as it was") puts these back, so a
+    # typo in the venue filter does not change how the TEAP already in the
+    # project is read.
+    import copy as _copy
+    before = (t.sheet, t.header_row, _copy.deepcopy(t.mapping), t.venue_filter)
+
+    def _put_back(sess: Session) -> None:
+        sess.rollback()
+        tf = sess.get(TeapFile, teap_id)
+        if tf is not None:
+            tf.sheet, tf.header_row, tf.mapping, tf.venue_filter = before
+            sess.commit()
+
     t.sheet, t.header_row = body.sheet, body.header_row
     # An unset venue filter defaults to the project's own venue. The user can still
     # clear it deliberately, but the common case stops being a trap.
@@ -1636,8 +1653,25 @@ def import_teap(project_id: int, teap_id: int, body: TeapMappingIn,
         def work(ctx, jdb: Session) -> dict:
             proj = jdb.get(Project, project_id)
             tf = jdb.get(TeapFile, teap_id)
-            spaces = S.import_teap(jdb, proj, tf, progress=ctx.progress,
-                                   allow_all_venues=allow_all)
+            # A cancel that arrives once the rows are stored is too late
+            # (5.9.0-rc3, T4-5): the import has committed, so the job ends as
+            # done and the file keeps the settings its spaces were read with.
+            # It used to raise there, and the put-back below wrote the old
+            # venue filter and mapping over the new spaces.
+            from ..jobs import JobCancelled
+
+            def progress(fraction: float, stage: str = "") -> None:
+                try:
+                    ctx.progress(fraction, stage)
+                except JobCancelled:
+                    if fraction < 1.0:
+                        raise
+            try:
+                spaces = S.import_teap(jdb, proj, tf, progress=progress,
+                                       allow_all_venues=allow_all)
+            except Exception:
+                _put_back(jdb)
+                raise
             return {"spaces": len(spaces), "rows": tf.imported_rows,
                     "total_ports": round(sum(sp.total_ports for sp in spaces), 1),
                     "venue_filter": tf.venue_filter,
@@ -1648,7 +1682,13 @@ def import_teap(project_id: int, teap_id: int, body: TeapMappingIn,
     try:
         spaces = S.import_teap(db, p, t, allow_all_venues=body.allow_all_venues)
     except (S.ValidationError, ValueError) as e:
+        _put_back(db)
         raise HTTPException(422, str(e))
+    except Exception:
+        # Anything else failed too (5.9.0-rc3, T4-6): the file is put back
+        # before the error goes up.
+        _put_back(db)
+        raise
     return {"spaces": len(spaces), "rows": t.imported_rows,
             "venue_filter": t.venue_filter,
             "total_ports": round(sum(s.total_ports for s in spaces), 1),
@@ -2255,6 +2295,158 @@ def delete_vertical(project_id: int, vertical_id: int,
             payload={"key": v.key, "lower_page": v.lower_page, "upper_page": v.upper_page,
                      "length_m": v.length_m})
     db.delete(v)
+    db.commit()
+    return Response(status_code=204)
+
+
+class PageJointIn(BaseModel):
+    """A match line marked on two sheets of one level (5.9.0-rc7): end 1 of
+    ``a`` is end 1 of ``b``, end 2 is end 2."""
+    a_page: int = Field(..., ge=1)
+    a_x1: float
+    a_y1: float
+    a_x2: float
+    a_y2: float
+    b_page: int = Field(..., ge=1)
+    b_x1: float
+    b_y1: float
+    b_x2: float
+    b_y2: float
+    #: what lies between the two lines in reality - 0 for a match line
+    gap_m: float = Field(0.0, ge=0.0, le=200.0)
+    label: str = Field("", max_length=200)
+
+    @model_validator(mode="after")
+    def _ends(self) -> "PageJointIn":
+        _sane_corner(self.a_x1, self.a_y1, self.a_x2, self.a_y2,
+                     self.b_x1, self.b_y1, self.b_x2, self.b_y2)
+        if self.a_page == self.b_page:
+            raise ValueError("a match line joins two sheets - mark it on this sheet and on "
+                             "the next sheet of the same level")
+        for x1, y1, x2, y2 in ((self.a_x1, self.a_y1, self.a_x2, self.a_y2),
+                               (self.b_x1, self.b_y1, self.b_x2, self.b_y2)):
+            if abs(x1 - x2) + abs(y1 - y2) < 1.0:
+                raise ValueError("a match line has two ends: click both ends of the line "
+                                 "on each sheet")
+        return self
+
+
+class PageJointPatch(BaseModel):
+    gap_m: Optional[float] = Field(None, ge=0.0, le=200.0)
+    label: Optional[str] = Field(None, max_length=200)
+
+
+def _sheet_level(db: Session, sh: "SH.Sheets", drawing_id: Optional[int],
+                 page: int) -> Optional[str]:
+    did = drawing_id if drawing_id is not None else (sh.drawing_ids[0] if sh.drawing_ids else None)
+    pg = db.execute(select(Page).where(Page.drawing_id == did, Page.number == page)).scalars().first()
+    return (pg.level or None) if pg is not None else None
+
+
+def _joint_dict(sh: "SH.Sheets", j: PageJointRow, db: Optional[Session] = None) -> dict:
+    # rc8 (T7-3): a line whose two sheets are on two levels now is kept and
+    # not used; ``levels_differ`` says so ("LEVEL 01 and LEVEL 02").
+    return {"id": j.id, "label": j.label or f"J{j.id}", "gap_m": j.gap_m,
+            "levels_differ": S.joint_levels_differ(db, j) if db is not None else None,
+            "a_page": sh.key(j.a_drawing_id, j.a_page),
+            "a_x1": j.a_x1, "a_y1": j.a_y1, "a_x2": j.a_x2, "a_y2": j.a_y2,
+            "b_page": sh.key(j.b_drawing_id, j.b_page),
+            "b_x1": j.b_x1, "b_y1": j.b_y1, "b_x2": j.b_x2, "b_y2": j.b_y2}
+
+
+@router.get("/projects/{project_id}/page-joints")
+def list_page_joints(project_id: int, db: Session = Depends(get_session)) -> list[dict]:
+    """The match lines of the project (5.9.0-rc7)."""
+    _project(db, project_id)
+    sh = SH.for_project(db, project_id)
+    return [_joint_dict(sh, j, db) for j in db.execute(select(PageJointRow).where(
+        PageJointRow.project_id == project_id).order_by(PageJointRow.id)).scalars()]
+
+
+@router.post("/projects/{project_id}/page-joints", status_code=201)
+def create_page_joint(project_id: int, body: PageJointIn,
+                      user: User = Depends(current_user),
+                      db: Session = Depends(get_session)) -> dict:
+    """A match line between two sheets of one level. Sheets of two different
+    levels are refused: that is a shaft or a riser, never a match line."""
+    from ..domain.consolidation import level_key
+    _project(db, project_id)
+    sh = SH.for_project(db, project_id)
+    a_did, a_pg = _split(sh, body.a_page)
+    b_did, b_pg = _split(sh, body.b_page)
+    la, lb = _sheet_level(db, sh, a_did, a_pg), _sheet_level(db, sh, b_did, b_pg)
+    if la and lb and level_key(la) != level_key(lb):
+        raise HTTPException(422, f"the two sheets are on different levels ({la} and {lb}): "
+                                 f"a match line joins sheets of one level - between levels "
+                                 f"register a shaft or riser (vertical)")
+    # The same line twice is one (rc8, tester T7-6): a double click on the
+    # last end, or a retry, stored J1 and J2 on the same ends, and the
+    # smaller gap won without a word. Same two sheets, the same ends within
+    # a drawing unit (either sheet first, either end first).
+    def _same(p, q):
+        return abs(p[0] - q[0]) <= 1.0 and abs(p[1] - q[1]) <= 1.0
+    mine = {(a_did, a_pg): ((body.a_x1, body.a_y1), (body.a_x2, body.a_y2)),
+            (b_did, b_pg): ((body.b_x1, body.b_y1), (body.b_x2, body.b_y2))}
+    for o in db.execute(select(PageJointRow).where(
+            PageJointRow.project_id == project_id)).scalars():
+        theirs = {(o.a_drawing_id, o.a_page): ((o.a_x1, o.a_y1), (o.a_x2, o.a_y2)),
+                  (o.b_drawing_id, o.b_page): ((o.b_x1, o.b_y1), (o.b_x2, o.b_y2))}
+        if set(theirs) == set(mine) and all(
+                (_same(mine[k][0], theirs[k][0]) and _same(mine[k][1], theirs[k][1]))
+                or (_same(mine[k][0], theirs[k][1]) and _same(mine[k][1], theirs[k][0]))
+                for k in mine):
+            raise HTTPException(409, f"this match line is already there: "
+                                     f"{o.label or f'J{o.id}'} - change its gap in the "
+                                     f"Inspector instead")
+    data = body.model_dump()
+    data.update(a_drawing_id=a_did, a_page=a_pg, b_drawing_id=b_did, b_page=b_pg)
+    data["label"] = (data.get("label") or "").strip()
+    j = PageJointRow(project_id=project_id, **data)
+    db.add(j)
+    db.flush()
+    if not j.label:   # rc8 (T7-11): blanks get the default name too
+        j.label = f"J{j.id}"
+    S.audit(db, project_id, "page_joint.created", entity="page_joint", entity_id=j.id,
+            actor=user.username,
+            payload={"sheets": [body.a_page, body.b_page], "gap_m": j.gap_m,
+                     "label": j.label})
+    db.commit()
+    return _joint_dict(sh, j, db)
+
+
+@router.patch("/projects/{project_id}/page-joints/{joint_id}")
+def patch_page_joint(project_id: int, joint_id: int, body: PageJointPatch,
+                     user: User = Depends(current_user),
+                     db: Session = Depends(get_session)) -> dict:
+    _project(db, project_id)
+    j = db.get(PageJointRow, joint_id)
+    if j is None or j.project_id != project_id:
+        raise HTTPException(404, "match line not found")
+    changed = {}
+    if body.gap_m is not None and body.gap_m != j.gap_m:
+        changed["gap_m"] = {"from": j.gap_m, "to": body.gap_m}
+        j.gap_m = body.gap_m
+    if body.label is not None and body.label.strip() and body.label.strip() != j.label:
+        changed["label"] = {"from": j.label, "to": body.label.strip()}
+        j.label = body.label.strip()
+    if changed:
+        S.audit(db, project_id, "page_joint.updated", entity="page_joint", entity_id=j.id,
+                actor=user.username, payload=changed)
+    db.commit()
+    return _joint_dict(SH.for_project(db, project_id), j, db)
+
+
+@router.delete("/projects/{project_id}/page-joints/{joint_id}", status_code=204)
+def delete_page_joint(project_id: int, joint_id: int,
+                      user: User = Depends(current_user),
+                      db: Session = Depends(get_session)) -> Response:
+    _project(db, project_id)
+    j = db.get(PageJointRow, joint_id)
+    if j is None or j.project_id != project_id:
+        raise HTTPException(404, "match line not found")
+    S.audit(db, project_id, "page_joint.deleted", entity="page_joint", entity_id=j.id,
+            actor=user.username, payload={"label": j.label, "gap_m": j.gap_m})
+    db.delete(j)
     db.commit()
     return Response(status_code=204)
 
@@ -3084,6 +3276,7 @@ def build_report(project_id: int, fmt: str, scenario: str = "As-Is",
                  legend: bool = Query(True),
                  lines: bool = Query(True),
                  notes: bool = Query(False),
+                 radii: bool = Query(True),
                  db: Session = Depends(get_session)) -> dict:
     """Build a report, in the request or as a job.
 
@@ -3102,12 +3295,12 @@ def build_report(project_id: int, fmt: str, scenario: str = "As-Is",
             return _build_report_now(jdb, jdb.get(Project, project_id), fmt,
                                      scenario, progress=ctx.progress,
                                      draw_legend=legend, draw_links=lines,
-                                     draw_notes=notes)
+                                     draw_notes=notes, draw_radii=radii)
         return {"job_id": job_manager.submit(kind="report.build", project_id=p.id,
                                              fn=work, db=db), "background": True}
     try:
         return _build_report_now(db, p, fmt, scenario, draw_legend=legend,
-                                 draw_links=lines, draw_notes=notes)
+                                 draw_links=lines, draw_notes=notes, draw_radii=radii)
     except S.ValidationError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -3167,7 +3360,8 @@ def _marked_pdf(src: str, out: str, *, progress=None, **kw) -> list:
 
 def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                       progress=None, draw_legend: bool = True,
-                      draw_links: bool = True, draw_notes: bool = False) -> dict:
+                      draw_links: bool = True, draw_notes: bool = False,
+                      draw_radii: bool = True) -> dict:
     # A saved scenario is drawn from its own snapshot. Re-analysing the live
     # project here is what made the Proposed export identical to the As-Is one.
     # An analysis that something changed after is run again first (4.2.0): a
@@ -3239,6 +3433,10 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                       coverage_available=not nothing_matched,
                       draw_legend=draw_legend, draw_links=draw_links,
                       draw_notes=draw_notes,
+                      # 5.9.0 (Marcelo, 21 Nov 2026): the 90 / 70 m reach
+                      # circles can be left off - on a master plan with every
+                      # NER of the venue they cross the whole sheet.
+                      draw_radii=draw_radii,
                       areas=S.areas_to_draw(db, p))
         if not sh.multi:
             off_page.extend(_marked_pdf(p.drawings[0].stored_path, str(out),
@@ -3333,7 +3531,8 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                                                    "off_page": len(off_page),
                                                    "legend": draw_legend,
                                                    "lines": draw_links,
-                                                   "notes": draw_notes})
+                                                   "notes": draw_notes,
+                                                   "radii": draw_radii})
     db.commit()
     body = {"file": out.name,
             "download": f"/api/projects/{p.id}/reports/download/{out.name}",

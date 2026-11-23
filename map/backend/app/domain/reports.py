@@ -122,6 +122,24 @@ MARKER_RING_WIDTH = 0.6
 # thing on the sheet the drawing office did not put there.
 MARKER_RADIUS = 12.0
 MARKER_LABEL_SIZE = 9.0
+#: 1.5.0 (Marcelo, 21 Nov 2026, on a 900-series master plan): a marker of a
+#: fixed size on the paper covers a few rooms on a sheet drawn at a small
+#: scale - the whole venue on one 340-inch sheet - and the names run into one
+#: another once the reader zooms in. The marker is now about this many metres
+#: of floor in radius, by the sheet's own scale, never larger than
+#: :data:`MARKER_RADIUS` (so the 1:100-1:200 detail sheets are drawn exactly
+#: as before) nor smaller than :data:`MARKER_MIN_RADIUS`. Its name shrinks in
+#: step, to :data:`MARKER_MIN_LABEL_SIZE` at least: the PDF is vector, so it
+#: stays sharp at any zoom. A sheet with no confirmed scale keeps the full
+#: size. Since 1.5.0-rc3 (Marcelo, 21 Nov 2026: "altera tbm a ilustração",
+#: a large venue project drawn only with illustrative NERs) the references
+#: (*NER, *TER, ...) shrink too, and so does everything else the export
+#: draws on the sheet - the space dot, the "match not confirmed" box, the
+#: Wi-Fi sign, the named-area tag and the small texts - in the same step
+#: (:func:`scaled`), so no symbol is larger than the NER it belongs to.
+MARKER_GROUND_RADIUS_M = 1.0
+MARKER_MIN_RADIUS = 3.0
+MARKER_MIN_LABEL_SIZE = 4.0
 #: A reference's name (*NER, *TER, *COW, *DIVA) — two points larger, to be read
 #: from across a key plan (Marcelo, 14 Oct 2026); the viewer does the same.
 REFERENCE_LABEL_SIZE = MARKER_LABEL_SIZE + 2.0
@@ -277,6 +295,39 @@ LEGEND_ROWS = [
 ]
 
 
+#: The smallest a small text (a distance on a line) gets on a small-scale
+#: sheet (1.5.0-rc3).
+MIN_SMALL_TEXT_SIZE = 3.0
+
+
+def scaled(base: float, f: float, floor: float = 0.0) -> float:
+    """``base`` in step with a sheet's marker factor ``f`` (1.5.0-rc3): as
+    it was at ``f`` = 1, smaller below, never under ``floor`` nor over
+    ``base``."""
+    if f >= 1.0:
+        return base
+    return min(base, max(floor, base * f))
+
+
+def marker_factor(scale: Optional[Scale]) -> float:
+    """The share of the full marker size a sheet's markers get (1.5.0): 1 on
+    a sheet with no scale or one drawn at 1:200 or larger; less on a sheet
+    drawn at a smaller scale, where :data:`MARKER_GROUND_RADIUS_M` of floor is
+    less than :data:`MARKER_RADIUS` points of paper."""
+    # Only a scale a person confirmed (1.5.0-rc3, T4-1): the one the import
+    # detects is stored unconfirmed, and a wrong one (a 1:5000 inset read as
+    # the sheet's) shrank every NER to the floor on an early export.
+    if scale is None or not getattr(scale, "confirmed", True):
+        return 1.0
+    try:
+        r = float(scale.to_pdf_units(MARKER_GROUND_RADIUS_M))
+    except Exception:  # noqa: BLE001 - an unusable scale draws as before
+        return 1.0
+    if not (r > 0) or r == float("inf"):
+        return 1.0
+    return max(MARKER_MIN_RADIUS, min(MARKER_RADIUS, r)) / MARKER_RADIUS
+
+
 def user_unit(page: "pymupdf.Page") -> float:
     """The page's ``/UserUnit`` (1.0 when it has none), 4.8.0."""
     try:
@@ -285,6 +336,16 @@ def user_unit(page: "pymupdf.Page") -> float:
         return u if u > 0 else 1.0
     except Exception:  # noqa: BLE001 — a malformed entry reads as no unit
         return 1.0
+
+
+def _dashes_over(dashes: str, u: float) -> str:
+    """A PDF dash pattern ("[4 3] 0") with every length divided by ``u``."""
+    m = re.match(r"\s*\[([^\]]*)\]\s*([-\d.]*)\s*$", str(dashes))
+    if not m:
+        return dashes
+    nums = [float(x) / u for x in m.group(1).split()]
+    phase = float(m.group(2) or 0) / u
+    return "[" + " ".join(f"{x:g}" for x in nums) + f"] {phase:g}"
 
 
 class PageSpace:
@@ -356,21 +417,44 @@ class PageSpace:
     # ``Shape.finish`` takes the styling that ``page.draw_*`` takes as keywords,
     # so each of these is "add the geometry, then close it off with its style".
 
+    def _finish(self, kw: dict) -> None:
+        """Close off the shape. On a /UserUnit sheet PyMuPDF multiplies the
+        stroke width by the unit (0.9 pt came out 1.53 pt at 1.7); it is
+        handed over at 1/unit, so every ring, border and line is the width
+        it is on any sheet (1.5.0-rc5, T5-2)."""
+        if self._uu != 1.0:
+            kw = dict(kw, width=float(kw.get("width", 1.0)) / self._uu)
+            # ... and so is a dash pattern (1.5.0-rc6, T6-2): "[4 3] 0" came
+            # out "[6.8 5.1]" at 1.7.
+            if kw.get("dashes"):
+                kw["dashes"] = _dashes_over(kw["dashes"], self._uu)
+        self._shape.finish(**kw)
+
     def circle(self, x: float, y: float, r: float, **kw) -> None:
         self._shape.draw_circle(self.pt(x, y), r)
-        self._shape.finish(**kw)
+        self._finish(kw)
 
     def line(self, a: tuple[float, float], b: tuple[float, float], **kw) -> None:
         self._shape.draw_line(self.pt(*a), self.pt(*b))
-        self._shape.finish(**kw)
+        self._finish(kw)
 
     def box(self, x0: float, y0: float, x1: float, y1: float, **kw) -> None:
-        self._shape.draw_rect(self.rect(x0, y0, x1, y1))
-        self._shape.finish(**kw)
+        r = self.rect(x0, y0, x1, y1)
+        if self._uu != 1.0:
+            # On a sheet with /UserUnit PyMuPDF multiplies a rectangle's
+            # width and height by the unit, from its lower-left corner (the
+            # PDF's origin); a circle or a line is drawn right. Every tag of a
+            # name grew to the right and up by the unit (1.5.0-rc3, T4-2):
+            # the rectangle is handed over at 1/unit from that corner, which
+            # lands it where it was laid out.
+            u = self._uu
+            r = pymupdf.Rect(r.x0, r.y1 - r.height / u, r.x0 + r.width / u, r.y1)
+        self._shape.draw_rect(r)
+        self._finish(kw)
 
     def polyline(self, points, **kw) -> None:
         self._shape.draw_polyline([self.pt(x, y) for x, y in points])
-        self._shape.finish(**kw)
+        self._finish(kw)
 
     def text(self, x: float, y: float, s: str, **kw) -> None:
         p = self.pt(x, y)
@@ -382,6 +466,12 @@ class PageSpace:
             # app landed off the sheet — empty Wi-Fi tags, no footnote. The
             # position is divided by the unit here, the way the drawing is.
             p = pymupdf.Point(p.x / self._uu, p.y / self._uu)
+            # ... and it multiplies the font size by the unit: a 9 pt name
+            # came out 15.3 pt on a UserUnit 1.7 sheet, off its tag (1.5.0-rc3,
+            # T4-2). The size is given at 1/unit, so every label is the size
+            # it was laid out at, as the notes have been since 5.8.0.
+            if "fontsize" in kw:
+                kw = dict(kw, fontsize=kw["fontsize"] / self._uu)
         self._shape.insert_text(p, term(s), rotate=self.text_rotate, **kw)
 
     def commit(self) -> None:
@@ -408,16 +498,19 @@ def _draw_wifi(space: PageSpace, x: float, y: float, size: float, colour,
 
 
 def _draw_legend(space: PageSpace, scenario: str, rules: DistanceRules,
-                 scale: Optional[Scale], *, coverage_available: bool = True) -> None:
+                 scale: Optional[Scale], *, coverage_available: bool = True,
+                 reach: bool = True) -> None:
+    # The reach-circle rows only when the circles are drawn (1.5.0-rc3, T4-9).
+    rows = [r for r in LEGEND_ROWS if reach or not r[0].startswith("Reach circle")]
     w = 320.0
-    h = 26.0 + len(LEGEND_ROWS) * 15.0 + 54.0 + 9.0 + (0.0 if coverage_available else 22.0)
+    h = 26.0 + len(rows) * 15.0 + 54.0 + 9.0 + (0.0 if coverage_available else 22.0)
     x0, y0 = 18.0, 18.0
     space.box(x0, y0, x0 + w, y0 + h,
               color=(0.15, 0.15, 0.15), fill=(1, 1, 1), width=0.9, fill_opacity=0.92)
     space.text(x0 + 10, y0 + 18, "NER MAP",
                fontsize=10, color=(0, 0, 0))
     y = y0 + 34
-    for label, colour, style in LEGEND_ROWS:
+    for label, colour, style in rows:
         if style == "fill":
             space.box(x0 + 10, y - 7, x0 + 24, y + 3,
                       color=colour, fill=colour, fill_opacity=0.35, width=0.5)
@@ -445,7 +538,8 @@ def _draw_legend(space: PageSpace, scenario: str, rules: DistanceRules,
         y += 15
 
     y += 6
-    space.text(x0 + 10, y, f"Reach circles: {rules.general_limit_m:g} m general / "
+    space.text(x0 + 10, y, f"{'Reach circles' if reach else 'Limits'}: "
+                           f"{rules.general_limit_m:g} m general / "
                            f"{rules.photographer_limit_m:g} m photographers (straight line)",
                fontsize=7, color=(0.1, 0.1, 0.1))
     y += 11
@@ -606,17 +700,15 @@ def draw_note(sp: "PageSpace", note: str, *, top: float, above: float,
     bx0, by0 = place_note_box(x0, top, bw, bh, sp.width, sp.height, above=above)
     use_note_font(sp.page, fallback=any(fn == NOTE_FALLBACK for rl in runs for _, fn in rl))
     # A sheet with a /UserUnit (5.8.0): PyMuPDF scales a drawn rectangle and
-    # an inserted font size by the unit, but not the text's position, so the
-    # lines overlapped and the box grew. The box and the font are given at
-    # 1/unit, which lands them at the size laid out here.
-    u = float(getattr(sp, "_uu", 1.0) or 1.0)
-    sp.box(bx0, by0 + bh - bh / u, bx0 + bw / u, by0 + bh, color=border, fill=(1, 1, 0.88),
-           fill_opacity=0.92, width=0.4 / u)
+    # an inserted font size by the unit; since 1.5.0-rc3 PageSpace.box and
+    # PageSpace.text give both at 1/unit for every label, this one included.
+    sp.box(bx0, by0, bx0 + bw, by0 + bh, color=border, fill=(1, 1, 0.88),
+           fill_opacity=0.92, width=0.4)
     for k, rl in enumerate(runs):
         x = bx0 + 3
         y = by0 + 1 + lh * (k + 1) - size * 0.2
         for r, fn in rl:
-            sp.text(x, y, r, fontsize=size / u, fontname=fn, color=(0.1, 0.1, 0.1))
+            sp.text(x, y, r, fontsize=size, fontname=fn, color=(0.1, 0.1, 0.1))
             x += _note_font_named(fn).text_length(r, fontsize=size)
 
 
@@ -635,15 +727,22 @@ def wrap_note(text: str, width: float = NOTE_WIDTH, size: float = NOTE_SIZE,
     for para in str(text or "").replace("\r", "").split("\n"):
         line = ""
         for word in para.split():
-            while w(word) > width:          # a word wider than the box
-                k = len(word)
-                while k > 1 and w(word[:k]) > width:
-                    k -= 1
+            if w(word) > width:             # a word wider than the box
+                # Broken in one pass over its characters (1.5.0, F2-7): it
+                # used to try one character less at a time, measuring every
+                # try - a pasted link of 800 characters took ~10 s a sheet.
                 if line:
                     out.append(line)
                     line = ""
-                out.append(word[:k])
-                word = word[k:]
+                piece, used = "", 0.0
+                for ch in word:
+                    cw = w(ch)
+                    if piece and used + cw > width:
+                        out.append(piece)
+                        piece, used = "", 0.0
+                    piece += ch
+                    used += cw
+                word = piece
             cand = f"{line} {word}" if line else word
             if line and w(cand) > width:
                 out.append(line)
@@ -786,6 +885,9 @@ def export_marked_pdf(
             sp = PageSpace(page)
             sk = key_of(page_no)
             scale = scale_for_page.get(sk)
+            page_f = marker_factor(scale)
+            #: the small texts (distances, "tied on"), in step (1.5.0-rc3)
+            small = scaled(5.5, page_f, MIN_SMALL_TEXT_SIZE)
 
             # Named areas first, under everything else: a faint fill with the
             # name on a tag at its centre. They are the reader's own notes on
@@ -798,12 +900,14 @@ def export_marked_pdf(
                 if label:
                     cx = sum(x for x, _ in poly) / len(poly)
                     cy = sum(y for _, y in poly) / len(poly)
+                    asz = scaled(MARKER_LABEL_SIZE, page_f, MARKER_MIN_LABEL_SIZE)
+                    g = asz / MARKER_LABEL_SIZE
                     tw = pymupdf.get_text_length(label, fontname=MARKER_LABEL_FONT,
-                                                 fontsize=MARKER_LABEL_SIZE)
-                    tx, ty = cx - tw / 2, cy + MARKER_LABEL_SIZE * 0.4
-                    sp.box(tx - 3, ty - MARKER_LABEL_SIZE * 0.78 - 2, tx + tw + 3, ty + 3,
+                                                 fontsize=asz)
+                    tx, ty = cx - tw / 2, cy + asz * 0.4
+                    sp.box(tx - 3 * g, ty - asz * 0.78 - 2 * g, tx + tw + 3 * g, ty + 3 * g,
                            color=AREA_COLOUR, fill=(1, 1, 1), fill_opacity=0.85, width=0.5)
-                    sp.text(tx, ty, label, fontsize=MARKER_LABEL_SIZE,
+                    sp.text(tx, ty, label, fontsize=asz,
                             fontname=MARKER_LABEL_FONT, color=AREA_COLOUR)
 
             if draw_radii and scale is not None:
@@ -825,11 +929,11 @@ def export_marked_pdf(
             for a, occ in measured_elsewhere.get(sk, []):
                 colour = STATUS_FILL.get(a.status, (0.4, 0.4, 0.4))
                 q = occ.representative_point()
-                sp.circle(q.x, q.y, 5.0, color=colour, fill=colour,
+                sp.circle(q.x, q.y, 5.0 * page_f, color=colour, fill=colour,
                           fill_opacity=0.45, width=0.6)
-                sp.text(q.x + 7, q.y + 9,
+                sp.text(q.x + 7 * page_f, q.y + 9 * page_f,
                         f"{a.area.space_code or a.space_name} (TEAP line tied on {st(a.area.page)})",
-                        fontsize=5.5, color=colour)
+                        fontsize=small, color=colour)
                 ner = next((n for n in ners if n.key == a.ner_key), None)
                 npt = _point_on(ner, sk, q)
                 if draw_links and npt is not None:
@@ -838,7 +942,7 @@ def export_marked_pdf(
                     if a.evaluation and a.evaluation.effective_distance_m is not None:
                         sp.text((q.x + npt.x) / 2, (q.y + npt.y) / 2,
                                 f"{a.evaluation.effective_distance_m:.0f} m",
-                                fontsize=5.5, color=colour)
+                                fontsize=small, color=colour)
 
             for a in by_page.get(sk, []):
                 colour = STATUS_FILL.get(a.status, (0.4, 0.4, 0.4))
@@ -846,23 +950,25 @@ def export_marked_pdf(
                 if a.kind == "wireless_point":
                     # Its own sign, in its own colour; the verdict is the ring
                     # under it, in the same status colours as a space.
-                    sp.circle(p.x, p.y, 5.0, color=colour, fill=colour,
+                    sp.circle(p.x, p.y, 5.0 * page_f, color=colour, fill=colour,
                               fill_opacity=0.35, width=0.6)
                     wcol = COLOURS[ElementKind.WIRELESS]
-                    _draw_wifi(sp, p.x, p.y, WIFI_SIGN_SIZE, wcol)
+                    _draw_wifi(sp, p.x, p.y, WIFI_SIGN_SIZE * page_f, wcol)
                     # The name on a white tag under the sign, the way a NER's
                     # name is written (4.4.0). It was 6.5 pt in the sign's own
                     # cyan straight on the linework, and the team found it
                     # small and unreadable on the exported PDF.
                     wl = a.space_name or ""
                     if wl:
+                        wsz = scaled(WIFI_LABEL_SIZE, page_f, MARKER_MIN_LABEL_SIZE)
+                        g = wsz / WIFI_LABEL_SIZE
                         tw = pymupdf.get_text_length(wl, fontname=MARKER_LABEL_FONT,
-                                                     fontsize=WIFI_LABEL_SIZE)
+                                                     fontsize=wsz)
                         tx = p.x - tw / 2
-                        ty = p.y + WIFI_LABEL_SIZE + 5
-                        sp.box(tx - 2.5, ty - WIFI_LABEL_SIZE * 0.78 - 1.5, tx + tw + 2.5, ty + 3,
+                        ty = p.y + wsz + 5 * page_f
+                        sp.box(tx - 2.5 * g, ty - wsz * 0.78 - 1.5 * g, tx + tw + 2.5 * g, ty + 3 * g,
                                color=wcol, fill=(1, 1, 1), fill_opacity=0.85, width=0.4)
-                        sp.text(tx, ty, wl, fontsize=WIFI_LABEL_SIZE,
+                        sp.text(tx, ty, wl, fontsize=wsz,
                                 fontname=MARKER_LABEL_FONT, color=WIFI_LABEL_INK)
                     ner = next((n for n in ners if n.key == a.ner_key), None)
                     npt = _point_on(ner, sk, p)
@@ -880,11 +986,13 @@ def export_marked_pdf(
                     sp.polyline(list(poly) + [poly[0]], color=colour,
                                 fill=colour, fill_opacity=0.22, width=0.8)
                 else:
-                    sp.circle(p.x, p.y, 5.0, color=colour, fill=colour,
+                    sp.circle(p.x, p.y, 5.0 * page_f, color=colour, fill=colour,
                               fill_opacity=0.45, width=0.6)
                 if not a.match_confirmed:
-                    sp.box(p.x - 12, p.y - 9, p.x + 12, p.y + 9,
-                           color=STATUS_FILL[Status.MATCH_NOT_CONFIRMED], width=1.1)
+                    bx, by = 12 * page_f, 9 * page_f
+                    sp.box(p.x - bx, p.y - by, p.x + bx, p.y + by,
+                           color=STATUS_FILL[Status.MATCH_NOT_CONFIRMED],
+                           width=1.1 * max(page_f, 0.5))
                 # The space → room leader line with its distance. Optional
                 # since 10 Sep 2026 (``with NER → space lines`` on Reports):
                 # on a sheet with a hundred served rooms the lines are the
@@ -902,18 +1010,19 @@ def export_marked_pdf(
                         if a.evaluation and a.evaluation.effective_distance_m is not None:
                             mx, my = (p.x + npt.x) / 2, (p.y + npt.y) / 2
                             sp.text(mx, my, f"{a.evaluation.effective_distance_m:.0f} m",
-                                    fontsize=5.5, color=colour)
+                                    fontsize=small, color=colour)
                     elif ner is not None:
-                        sp.text(p.x + 7, p.y + 2,
+                        sp.text(p.x + 7 * page_f, p.y + 2 * page_f,
                                 f"{ner.label} ({st(ner.point.page)})",
-                                fontsize=5.5, color=colour)
+                                fontsize=small, color=colour)
 
             for n, npt in ners_by_page.get(sk, []):
                 if n.kind == ElementKind.WIRELESS:
                     # RackReach Map (1.0.0): a Wi-Fi point is drawn by hand
                     # to illustrate — the sign only, no name (Marcelo,
                     # 5 Nov 2026).
-                    _draw_wifi(sp, npt.x, npt.y, WIFI_SIGN_SIZE, COLOURS[ElementKind.WIRELESS])
+                    _draw_wifi(sp, npt.x, npt.y, WIFI_SIGN_SIZE * page_f,
+                               COLOURS[ElementKind.WIRELESS])          # in step (1.5.0-rc3)
                     continue
                 # Always the kind colour. A room read back from a scenario
                 # saved by the old optimiser still carries ``proposed``, and
@@ -925,13 +1034,18 @@ def export_marked_pdf(
                                      "page": sk, "x": round(npt.x, 1),
                                      "y": round(npt.y, 1),
                                      "page_width": sp.width, "page_height": sp.height})
+                # Sized by the sheet's scale (1.5.0); a reference too since
+                # 1.5.0-rc3 - the illustrative NERs are references.
+                f = page_f
+                mr = MARKER_RADIUS * f
+                ring = MARKER_RING_WIDTH * max(f, 0.5)
                 if n.kind in REFERENCE_KINDS:
-                    sp.circle(npt.x, npt.y, MARKER_RADIUS, color=MARKER_RING,
-                              fill=colour, width=MARKER_RING_WIDTH,
+                    sp.circle(npt.x, npt.y, mr, color=MARKER_RING,
+                              fill=colour, width=ring,
                               dashes=REFERENCE_RING_DASHES)
                 else:
-                    sp.circle(npt.x, npt.y, MARKER_RADIUS, color=MARKER_RING,
-                              fill=colour, width=MARKER_RING_WIDTH)
+                    sp.circle(npt.x, npt.y, mr, color=MARKER_RING,
+                              fill=colour, width=ring)
                 # The name sits on a translucent white tag *under* the dot, not
                 # beside it. On a real book the marker lands on the room's own
                 # label — the extractor put it there — and on the VDB comment
@@ -941,14 +1055,16 @@ def export_marked_pdf(
                 # (seen on the VBB book, 10 Sep 2026). Below the dot is
                 # clear of the annotation's baseline; the tag keeps the name
                 # readable and lets the linework show through.
-                size = (REFERENCE_LABEL_SIZE if n.kind in REFERENCE_KINDS
+                full = (REFERENCE_LABEL_SIZE if n.kind in REFERENCE_KINDS
                         else MARKER_LABEL_SIZE)
+                size = max(MARKER_MIN_LABEL_SIZE, full * f) if f < 1 else full
+                g = size / full                 # the tag's padding, in step
                 tw = pymupdf.get_text_length(n.label, fontname=MARKER_LABEL_FONT,
                                              fontsize=size)
                 tx = npt.x - tw / 2
-                ty = npt.y + MARKER_RADIUS + size + 2
-                sp.box(tx - 2.5, ty - size * 0.78 - 1.5, tx + tw + 2.5, ty + 3,
-                       color=colour, fill=(1, 1, 1), fill_opacity=0.82, width=0.4)
+                ty = npt.y + mr + size + 2 * g
+                sp.box(tx - 2.5 * g, ty - size * 0.78 - 1.5 * g, tx + tw + 2.5 * g, ty + 3 * g,
+                       color=colour, fill=(1, 1, 1), fill_opacity=0.82, width=0.4 * max(g, 0.5))
                 sp.text(tx, ty, n.label, fontsize=size,
                         fontname=MARKER_LABEL_FONT,
                         color=LABEL_COLOURS.get(n.kind, colour))
@@ -962,11 +1078,11 @@ def export_marked_pdf(
                 if draw_notes and note and n.kind in (ElementKind.NER_CRITICAL,
                                                       ElementKind.NER_NONCRITICAL):
                     draw_note(sp, note, centre=npt.x, top=ty + 5,
-                              above=npt.y - MARKER_RADIUS - 3, border=colour)
+                              above=npt.y - mr - 3, border=colour)
 
             if draw_legend and page_no == legend_page:
                 _draw_legend(sp, scenario, rules, scale,
-                             coverage_available=coverage_available)
+                             coverage_available=coverage_available, reach=draw_radii)
             else:
                 _draw_footnote(sp, scenario, rules, scale,
                                coverage_available=coverage_available,

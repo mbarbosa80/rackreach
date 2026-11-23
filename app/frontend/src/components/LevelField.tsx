@@ -10,12 +10,13 @@
 import { useEffect, useMemo, useState } from "react";
 import { t } from "../lib/i18n";
 
-/** A level as something to compare: "LEVEL 02" = "Level 2" = "L2" = "2";
- *  "LEVEL -1" (a basement) stays apart from "LEVEL 1". */
+/** A level as something to compare: "LEVEL 02" = "Level 2" = "LEVEL2" = "L2"
+ *  = "2"; "LEVEL -1" = "L-1" (a basement) stays apart from "LEVEL 1". Same
+ *  rule as the server's ``level_key`` (5.9.0, F2-2). */
 export function levelKey(v: string | null | undefined): string {
   let s = String(v || "").trim().toUpperCase().replace(/\s+/g, " ");
   if (!s) return "";
-  s = s.replace(/^(?:(?:LEVEL|LVL|FLOOR|NIVEL|NÍVEL)\b(?:\s*:\s*|-(?=\d)|\s+)|L(?=\d))/, "").replace(/ /g, "");
+  s = s.replace(/^(?:(?:LEVEL|LVL|FLOOR|NIVEL|NÍVEL)(?:\s*:\s*|-(?=[A-Z]?\d)|\s+|(?=-?[A-Z]?\d))|L(?=-?\d))/, "").replace(/ /g, "");
   const m = s.match(/^(-?)([A-Z]?)0*(\d+)([A-Z]?)$/);
   return m ? `${m[1]}${m[2]}${Number(m[3])}${m[4]}` : s;
 }

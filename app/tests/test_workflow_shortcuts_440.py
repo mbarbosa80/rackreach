@@ -209,9 +209,11 @@ def test_the_exported_wifi_name_is_bold_at_the_ner_size(client):
                     sha256="x" * 64, page_count=1)
         db.add(d)
         db.flush()
-        db.add(Page(drawing_id=d.id, number=1, width=1000, height=700, metres_per_unit=1.0,
-                    scale_label="1u=1m", scale_source="manual", scale_confirmed=True,
-                    level="LEVEL 01"))
+        # A 1:100 detail sheet (5.9.0-rc3): on a small-scale sheet the
+        # Wi-Fi name shrinks with the NERs, and "1 unit = 1 m" is 1:2835.
+        db.add(Page(drawing_id=d.id, number=1, width=1000, height=700,
+                    metres_per_unit=100 / 2834.645669, scale_label="1:100",
+                    scale_source="manual", scale_confirmed=True, level="LEVEL 01"))
         tf = TeapFile(project_id=p.id, filename="teap.xlsx", stored_path=f"{TMP}/t.xlsx",
                       sha256="y" * 64)
         db.add(tf)

@@ -52,6 +52,125 @@ package.
 
 ---
 
+## 5.9.0 — 2026-11-21
+
+MINOR: a new switch on the Reports screen (`with reach circles`), and the
+marked-up PDF sizes each room marker by the sheet's scale. No project changes
+when it is installed, and a detail sheet at 1:100 to 1:200 is drawn exactly as
+before.
+
+- Marked-up PDF, room markers sized by the scale (Marcelo, on a 900-series
+  master plan: the racks "ficam muito grandes" when zooming in): the dot is about
+  1 m of floor in radius (`MARKER_GROUND_RADIUS_M`), never more than the 12 pt
+  radius it had and never less than 3 pt; the name shrinks in step, to 4 pt at
+  least (the PDF is vector, it is read by zooming in). A sheet with no confirmed
+  scale and every reference (*rack, *equipment room, …) keep the full size.
+- `with reach circles` (on by default) beside `with legend`, `with rack → space
+  lines` and `with rack notes`: off, neither the marked-up PDF nor the composite
+  map PDF draws the 90 / 70 m circles; the composite legend drops its two reach
+  rows. The limits stay written in the legend and the footnote. Audited
+  (`radii` in `report.generated`).
+- The independent tester's findings on 5.6.0 → 5.8.0 (F2-1 … F2-7, verdict GO,
+  none changing a real project's result):
+  - F2-1: the Scale screen's level follows the rack field's rules - no control
+    or invisible character, at most 40 characters, refused and never cut
+    (`consolidation.checked_level`, one rule for both).
+  - F2-2: `level_key` reads `LEVEL2`, `FLOOR2`, `LVL2` and `L-1` as
+    `normalise_level` writes them, so the merge and the cross-sheet link rule
+    no longer call `LEVEL2` and `LEVEL 02` two floors (the screen's
+    `levelKey` too).
+  - F2-3: undoing a merge gives back the level from before only while the
+    level the merge left is still there; one typed after the merge stays.
+  - F2-4: a demand list re-import that fails leaves the file's sheet, header row,
+    mapping and venue filter as they were.
+  - F2-5: rows with a blank venue are not one more venue in the CSV check
+    (as in the workbook check and on the screen).
+  - F2-6: the 40-character limit is measured on the level as stored, after
+    upper-casing (`ß` → `SS`).
+  - F2-7: a word wider than the note box is broken in one pass; a pasted link
+    of 600 characters wraps in milliseconds instead of seconds per sheet.
+
+- rc3 (the independent tester's findings on rc2, verdict GO, all fixed at
+  Marcelo's request - "corrige tudo" - and his own test on a large venue project
+  drawn only with illustrative racks):
+  - The illustrative markers (references *rack★, *rack, *equipment room, *COW, *AV network)
+    shrink with the scale too, and so does everything else drawn on the
+    sheet: space dot, "match not confirmed" box, Wi-Fi sign and name,
+    named-area tag, small texts (`reports.scaled`); no symbol is larger than
+    its rack (T4-8).
+  - Only a confirmed scale shrinks the markers; a detected, unconfirmed one
+    keeps the full size, as documented (T4-1).
+  - Sheets with /UserUnit: every name and tag is the size it was laid out at
+    and centred under its dot (`PageSpace.box` / `PageSpace.text` give
+    PyMuPDF the rectangle and the font size at 1/unit; the notes' own
+    correction moved there). The legend and footnote of such a sheet are now
+    drawn at their size too (T4-2).
+  - `LEVELB1`, `FLOORB2`, `LVLB1`, `LEVEL-B1` read as `LEVEL B1` on both sides
+    (T4-3); Hangul fillers, the blank braille pattern, the combining grapheme
+    joiner, variation selectors and the like are refused in a level (T4-4);
+    a full-width `０２` is written `LEVEL 02`.
+  - A demand list re-import cancelled once its rows are stored ends as done and keeps
+    the settings its spaces were read with (T4-5, a regression of F2-4).
+  - A header row past the end of the sheet is refused in words (422), and the
+    file is put back on any failure of a synchronous import (T4-6).
+  - A level the rule refuses on the Scale screen answers 422, not 404 (T4-7).
+- rc4: no venue named in shipped text (a comment, this file, HISTORY and a
+  test said which project the request came from).
+- rc5 (the tester's findings on rc3, verdict GO): the compatibility step no
+  longer turns an ordinal indicator into a letter - "2ª" stays "2ª", not
+  "LEVEL 02A", which is the real level 2A (T5-1); on a /UserUnit sheet every
+  line is drawn at its width too (T5-2). Known and not fixed: a sheet with
+  both /Rotate and /UserUnit draws every mark away from its place (T5-3, as
+  T3-2 since 4.8.0); none of the 39 real books checked has both.
+- rc6 (the tester's findings on rc5, verdict GO; Marcelo: "faz o rc6"): a
+  level pasted in decomposed form ("i" + combining accent, as macOS file
+  names and some PDF text carry it) is composed first, so "Nível 2" is
+  LEVEL 02 and "Térreo" the same level as the one typed (T6-1); on a
+  /UserUnit sheet the dash patterns are their length too (T6-2).
+- rc7 (Marcelo, 22 Nov: on a 400-series book a rack at the top right of one
+  sheet is the nearest room for spaces at the top left of the next sheet of
+  the level, and "a ferramenta route não se conecta entre páginas"; folded
+  into 5.9.0 at his request so he tests it with the rest): **match lines**.
+  The `match line` tool of the viewer marks the same cut on two sheets of one
+  level (two ends on each, end 1 with end 1) and a gap in metres (0 by
+  default). A rack on the other sheet then competes for the space like one on
+  its own sheet, measured as the shortest path across the line: straight on
+  the space's sheet, the gap, straight on the rack's sheet, each on its own
+  scale (`domain/joints.py`; the assumptions give the three figures). Sheets
+  of two different levels are refused (that is a shaft or riser). New table
+  `page_joints` (created at start; nothing to migrate), API
+  `/projects/{id}/page-joints`, audited, carried in the project package,
+  removed with its book. A traced route does not continue across a match
+  line. No project changes until a line is drawn.
+- rc8 (team feedback, 22 Nov evening: a whole-venue book of 222 MB was refused,
+  "file is 222 MB, over the 200 MB limit"): a file may be up to **1024 MB**
+  (`max_upload_mb`, still set per installation with `NER_MAX_UPLOAD_MB`). The
+  refusal says how to get round it (split the book, or raise the limit).
+  Checked end to end with a synthetic book over the old limit
+  (`qa/big_book_rc8.py`: upload, reading, tiles, marked-up PDF, peak memory).
+- rc8, the independent tester's findings on the match lines (T7-1 ... T7-11,
+  tests/test_tester_f7_590.py): a room's far corner is measured across the
+  line (a 20 m gap made a corner 90.71 m away read 86.02 m, T7-1); a shaft
+  route round another level no longer hides the line - the rack across it is
+  of the space's level, measured on the level, the way round only when
+  shorter (T7-2); a line whose sheets are given two levels afterwards is
+  kept and not used, said on the sheet and in the Inspector (T7-3); the
+  Demand row of a space served across a line no longer reads "via vertical
+  route" (T7-4); an emptied gap box no longer sets the gap to 0 (T7-5); the
+  same line twice is refused, 409 (T7-6); a wrong gap in the prompt is asked
+  again and a refused request is said in words, not JSON (T7-7); equal
+  lines tie by number, J2 before J10 (T7-8); a level cut into four sheets
+  reaches the diagonal sheet through the one in between (T7-9); the note
+  gives two decimals, as the manual (T7-10); a blank name gets the default
+  J-name (T7-11).
+
+**Tests**: tests/test_marker_scale_590.py, the testers'
+tests/test_tester_f2_590.py, tests/test_tester_f3_590.py,
+tests/test_tester_f4_590.py (T5-3 expected to fail),
+tests/test_tester_f5_590.py and tests/test_page_joints_590.py; tests/test_demand_screen_20260910.py checks the
+24 pt marker on a 1:100 sheet (its synthetic 1 unit = 1 m sheet is a 1:2835
+plan, where the marker is now smaller).
+
 ## 5.8.0 — 2026-11-17
 
 MINOR: a rack has a level of its own, the workbook's *Racks and ports* sheet

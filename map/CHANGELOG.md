@@ -10,6 +10,50 @@ The number lives in one file, `VERSION`. To release: edit `VERSION`, the
 `docs/INSTALL.html`, `docs/QUICK-INSTALL.html` and `docs/HISTORY.html`, run the
 tests, build the package.
 
+## 1.5.0 — 2026-11-21
+
+From RackReach 5.9.0, what concerns the map study:
+- **Markers sized by the sheet's scale** on the marked-up PDF: about 1 m of
+  floor in radius, never more than the 12 pt radius they had (a 1:100 to 1:200
+  sheet is drawn as before) nor less than 3 pt; the name shrinks in step, to
+  4 pt at least. No confirmed scale, or a reference: the full size.
+- **`with reach circles`** (on by default) on the Report screen: off, neither
+  PDF draws the 90 / 70 m circles, and the composite legend drops its reach
+  rows.
+- The independent tester's findings on 1.2.0 → 1.4.0: the Scale screen's
+  level follows the rack field's rules (F2-1, F2-6); `LEVEL2`, `FLOOR2`, `LVL2`
+  and `L-1` compare as the levels they are (F2-2); undoing a merge keeps a
+  level typed after it (F2-3); a note with a very long word wraps at once
+  (F2-7).
+
+- rc3 (the independent tester's findings on rc2, all fixed; Marcelo: the
+  illustrative racks must shrink too): references, hand-drawn Wi-Fi signs and
+  area tags follow the scale; only a confirmed scale counts (T4-1); names and
+  tags on /UserUnit sheets at their size and centred (T4-2); `LEVELB1`,
+  `LEVEL-B1`… read as `LEVEL B1` (T4-3); blank-looking characters refused and
+  full-width digits written plainly in a level (T4-4); a level refused on the
+  Scale screen answers 422, not 404 (T4-7); the marked-up PDF legend drops the
+  reach rows when the circles are off (T4-9).
+
+- rc4: no venue named in shipped text.
+- rc5 (the tester's findings on rc3, verdict GO): "2ª" stays as typed instead
+  of becoming the real level 2A (T5-1); lines on /UserUnit sheets at their
+  width (T5-2). Known, not fixed: a sheet both rotated and with /UserUnit
+  draws every mark away from its place (T5-3); none of the 39 real books
+  checked has both.
+- rc6 (the tester's findings on rc5, verdict GO): a level pasted with its
+  accents decomposed is composed first, so it is the level typed (T6-1); dash
+  patterns on /UserUnit sheets at their length (T6-2).
+- rc7 (team feedback, 22 Nov evening: a whole-venue book of 222 MB was
+  refused): a file may be up to **1024 MB** (was 200; still set per
+  installation with `NER_MAX_UPLOAD_MB`), and the refusal says how to get
+  round it (split the book, or raise the limit). As RackReach 5.9.0-rc8.
+
+**Tests**: tests/test_marker_scale_150.py, the testers'
+tests/test_tester_f2_150.py, tests/test_tester_f3_150.py,
+tests/test_tester_f4_150.py, tests/test_tester_f5_150.py and
+tests/test_upload_limit_150.py.
+
 ## 1.4.0 — 2026-11-17
 
 From RackReach 5.8.0, what concerns the map study:

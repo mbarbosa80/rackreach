@@ -748,7 +748,10 @@ def set_page_level(project_id: int, page_no: int, body: PageLevelIn,
     except S.ConflictError as exc:
         raise HTTPException(409, str(exc)) from exc
     except S.ValidationError as exc:
-        raise HTTPException(404, str(exc)) from exc
+        # 404 only for a page that is not there; a level the rule refuses
+        # is 422, as on the NER's field (1.5.0-rc3, T4-7).
+        missing = str(exc).startswith("page ") and str(exc).endswith("not found")
+        raise HTTPException(404 if missing else 422, str(exc)) from exc
 
 
 class KeyPlansIn(BaseModel):
@@ -1930,6 +1933,7 @@ def build_report(project_id: int, fmt: str, scenario: str = "As-Is",
                  legend: bool = Query(True),
                  lines: bool = Query(True),
                  notes: bool = Query(False),
+                 radii: bool = Query(True),
                  db: Session = Depends(get_session)) -> dict:
     """Build a report, in the request or as a job.
 
@@ -1950,12 +1954,12 @@ def build_report(project_id: int, fmt: str, scenario: str = "As-Is",
             return _build_report_now(jdb, jdb.get(Project, project_id), fmt,
                                      scenario, progress=ctx.progress,
                                      draw_legend=legend, draw_links=lines,
-                                     draw_notes=notes)
+                                     draw_notes=notes, draw_radii=radii)
         return {"job_id": job_manager.submit(kind="report.build", project_id=p.id,
                                              fn=work, db=db), "background": True}
     try:
         return _build_report_now(db, p, fmt, scenario, draw_legend=legend,
-                                 draw_links=lines, draw_notes=notes)
+                                 draw_links=lines, draw_notes=notes, draw_radii=radii)
     except S.ValidationError as exc:
         raise HTTPException(422, str(exc)) from exc
 
@@ -2015,7 +2019,8 @@ def _marked_pdf(src: str, out: str, *, progress=None, **kw) -> list:
 
 def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                       progress=None, draw_legend: bool = True,
-                      draw_links: bool = True, draw_notes: bool = False) -> dict:
+                      draw_links: bool = True, draw_notes: bool = False,
+                      draw_radii: bool = True) -> dict:
     # RackReach Map (1.0.0): no TEAP, no matching, no analysis. The PDF is
     # the book with what is drawn on it — the NERs with their reach circles,
     # the other markers, the Wi-Fi points and the named areas.
@@ -2047,6 +2052,10 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                       coverage_available=not nothing_matched,
                       draw_legend=draw_legend, draw_links=draw_links,
                       draw_notes=draw_notes,
+                      # 1.5.0 (Marcelo, 21 Nov 2026): the 90 / 70 m reach
+                      # circles can be left off - on a master plan with every
+                      # NER of the venue they cross the whole sheet.
+                      draw_radii=draw_radii,
                       areas=S.areas_to_draw(db, p))
         if not sh.multi:
             off_page.extend(_marked_pdf(p.drawings[0].stored_path, str(out),
@@ -2094,7 +2103,8 @@ def _build_report_now(db: Session, p: Project, fmt: str, scenario: str,
                                                    "off_page": len(off_page),
                                                    "legend": draw_legend,
                                                    "lines": draw_links,
-                                                   "notes": draw_notes})
+                                                   "notes": draw_notes,
+                                                   "radii": draw_radii})
     db.commit()
     body = {"file": out.name,
             "download": f"/api/projects/{p.id}/reports/download/{out.name}",

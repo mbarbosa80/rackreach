@@ -1074,7 +1074,7 @@ def undo_move(db: Session, project: Project, audit_id: int, *, actor: str = "use
 
 def export_pdf(db: Session, project: Project, out_path: Path, *, maps: Optional[list[int]] = None,
                progress: Progress = None, draw_legend: bool = True,
-               draw_notes: bool = False) -> dict:
+               draw_notes: bool = False, draw_radii: bool = True) -> dict:
     """One page per composite map — the sheets as placed, every NER with its
     reach (the general and the photographer limits, straight line), the Wi-Fi
     points and the other rooms. The legend on the first page only."""
@@ -1116,7 +1116,8 @@ def export_pdf(db: Session, project: Project, out_path: Path, *, maps: Optional[
                 shape.draw_rect(pymupdf.Rect(P(x0, y0), P(x1, y1)))
                 shape.finish(color=st["colour"], width=st["width"] * sz, dashes=st["dashes"],
                              stroke_opacity=0.9)
-        for n in data["ners"]:
+        # The reach circles, unless the export leaves them off (1.5.0).
+        for n in (data["ners"] if draw_radii else ()):
             if "X" not in n:
                 continue
             col = COLOURS["NER_CRITICAL"] if n["critical"] else COLOURS["NER_NONCRITICAL"]
@@ -1197,7 +1198,7 @@ def export_pdf(db: Session, project: Project, out_path: Path, *, maps: Optional[
                          f"{PRODUCED_BY}. {DISCLAIMER}",
                          fontsize=max(5.0, 13 * k), color=(0.25, 0.25, 0.25))
         if draw_legend and i == 0:
-            _legend(page, k, data["limits"])
+            _legend(page, k, data["limits"], reach=draw_radii)
         pages += 1
     # A locked output (the last map PDF still open) said in words (rc3, T2-2).
     from .export_guard import saving
@@ -1207,8 +1208,9 @@ def export_pdf(db: Session, project: Project, out_path: Path, *, maps: Optional[
     return {"pages": pages}
 
 
-def _legend(page, k: float, limits: dict) -> None:
-    """The legend box, top right of the first page."""
+def _legend(page, k: float, limits: dict, *, reach: bool = True) -> None:
+    """The legend box, top right of the first page. ``reach`` (1.5.0): the
+    reach rows only when the circles are drawn."""
     import pymupdf
     from .domain.reports import COLOURS
     s = max(0.6, k)
@@ -1219,6 +1221,8 @@ def _legend(page, k: float, limits: dict) -> None:
             (f"{limits['general_m']:g} m reach (straight line)", (0.3, 0.3, 0.3), "dash"),
             (f"{limits['photographer_m']:g} m reach — photographers", (0.3, 0.3, 0.3), "dot-dash"),
             ("Wi-Fi point", COLOURS["WIRELESS"], "dot")]
+    if not reach:
+        rows = [r for r in rows if r[2] not in ("dash", "dot-dash")]
     rows += [(f"{kind}", COLOURS.get(kind, (0.4, 0.4, 0.4)), "dot")
              for kind in ("TER", "IDF", "COW", "DIVA")]
     rows += [("Sheet confirmed", "confirmed", "state"),

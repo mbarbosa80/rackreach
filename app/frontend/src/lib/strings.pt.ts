@@ -807,6 +807,8 @@ export const PT: Record<string, string> = {
   "Click to read every note": "Clique para ler todas as notas",
   "with NER → space lines": "com linhas NER → espaço",
   "with NER notes": "com notas das NERs",
+  "with reach circles": "com círculos de alcance",
+  "The dashed 90 m and 70 m circles around each NER, on both PDFs. Turned off, the markers, the colours and the limits written in the legend stay as they are.": "Os círculos tracejados de 90 m e 70 m em volta de cada NER, nos dois PDFs. Desligado, os marcadores, as cores e os limites escritos na legenda continuam como estão.",
   "The NER's level: pick one the sheets state or type another (B1, Mezzanine). Empty gives it back the level of its sheet. Goes to the NERs sheet of the workbook.": "O nível da NER: escolha um dos níveis das folhas ou digite outro (B1, Mezzanine). Vazio volta ao nível da folha. Vai para a aba NERs da planilha.",
   "by you": "por você",
   "Serve another level?": "Atender outro nível?",
@@ -1690,8 +1692,8 @@ export const PT: Record<string, string> = {
     "Análise rodada e salva — os mesmos números em Demand per space e nas exportações.",
   "Clear measures":
     "Limpar medidas",
-  "Eraser: click a marker, a wireless point, a named area, a route, a shaft or a measure to delete it. Stays on until you choose select.":
-    "Borracha: clique em um marcador, um ponto Wi-Fi, uma área nomeada, uma rota, um shaft ou uma medida para apagar. Fica ativa até você escolher select.",
+  "Eraser: click a marker, a wireless point, a named area, a route, a shaft, a match line or a measure to delete it. Stays on until you choose select.":
+    "Borracha: clique em um marcador, um ponto Wi-Fi, uma área nomeada, uma rota, um shaft, uma linha de junção ou uma medida para apagar. Fica ativa até você escolher select.",
   "Measure: click each corner, double-click or press Enter to end. Measured on this sheet's scale, on this sheet only; nothing is saved, exported or used by the analysis. Erase one with the eraser, or Clear measures":
     "Medir: clique em cada canto, duplo clique ou Enter para terminar. Medido na escala desta folha, só nesta folha; nada é salvo, exportado ou usado pela análise. Apague com a borracha ou com Limpar medidas",
   "No analysis yet":
@@ -1975,4 +1977,49 @@ export const PT: Record<string, string> = {
     "Atenção — alerta de criticidade",
   "Attention: spaces marked critical on a NER that is not critical-rated. The alert does not change the row's status (served, or over capacity when that NER is full); the row suggests the nearest critical NER, and choosing a NER in Served by settles it.":
     "Atenção: espaços marcados como críticos numa NER que não é crítica. O alerta não muda o status da linha (atendido, ou acima da capacidade quando essa NER está cheia); a linha sugere a NER crítica mais próxima, e escolher uma NER em Atendido por resolve.",
+  // --- 5.9.0-rc7: match lines between two sheets of one level ---------------
+  "Same level, next sheet? Mark a match line between the two sheets (match line): the distance is measured across it.":
+    "Mesmo nível, na folha ao lado? Marque uma linha de junção entre as duas folhas (match line): a distância é medida através dela.",
+  "Now open the other sheet of this level and click the same line there: end 1 first, then end 2.":
+    "Agora abra a outra folha deste nível e clique na mesma linha lá: primeiro a ponta 1, depois a ponta 2.",
+  "The second half of a match line goes on the other sheet — change page, then click end 1 and end 2 of the same line there.":
+    "A segunda metade da linha de junção vai na outra folha. Mude de página e clique a ponta 1 e a ponta 2 da mesma linha lá.",
+  "Metres between the two lines (0 when both sheets show the same cut; more when they are drawn apart, e.g. a corridor left out)":
+    "Metros entre as duas linhas (0 quando as duas folhas mostram o mesmo corte; mais quando estão desenhadas afastadas, por exemplo um corredor que ficou de fora)",
+  "Match line":
+    "Linha de junção",
+  "between":
+    "entre",
+  "the match line":
+    "a linha de junção",
+  "A match line: where one level is split over two sheets, click the two ends of the cut on this sheet, then the same two ends on the other sheet (end 1, then end 2). A NER on one sheet can then serve a space on the other, measured straight to the line, the gap you give, and straight on":
+    "Linha de junção: quando um nível está dividido em duas folhas, clique as duas pontas do corte nesta folha e depois as mesmas duas pontas na outra folha (ponta 1, depois ponta 2). Assim uma NER de uma folha pode atender um espaço da outra, medido em linha reta até a linha, mais a distância informada, e em linha reta a partir dela",
+  "click end 1 of the cut on this sheet, then end 2":
+    "clique a ponta 1 do corte nesta folha, depois a ponta 2",
+  "click end 2 of the cut on this sheet":
+    "clique a ponta 2 do corte nesta folha",
+  "now open the other sheet and click end 1 of the same line":
+    "agora abra a outra folha e clique a ponta 1 da mesma linha",
+  "first half on":
+    "primeira metade em",
+  "Esc drops it":
+    "Esc descarta",
+  "click end 2 of the same line on this sheet":
+    "clique a ponta 2 da mesma linha nesta folha",
+  "gap":
+    "distância entre folhas",
+  "A space on one sheet and a NER on the other are measured straight to this line, plus the gap, plus straight on from the same place on the line on the other sheet — the shortest such path. It only joins sheets of one level; between levels use a shaft or riser. The space's assumptions say when a distance went across it.":
+    "Um espaço numa folha e uma NER na outra são medidos em linha reta até esta linha, mais a distância entre folhas, mais em linha reta a partir do mesmo ponto da linha na outra folha, pelo caminho mais curto. Só une folhas do mesmo nível; entre níveis use um shaft ou riser. As premissas do espaço dizem quando uma distância passou por ela.",
+  "Gap between the sheets (m)":
+    "Distância entre as folhas (m)",
+  "The gap is a number of metres from 0 to 200.":
+    "A distância entre as folhas é um número de metros de 0 a 200.",
+  "Not used:":
+    "Não usada:",
+  "the two sheets are on different levels now":
+    "as duas folhas agora estão em níveis diferentes",
+  "A match line joins sheets of one level; between levels register a shaft or riser (vertical), or delete this line.":
+    "Uma linha de junção une folhas do mesmo nível; entre níveis registre um shaft ou riser (vertical), ou apague esta linha.",
+  "not used: two levels":
+    "não usada: dois níveis",
 };

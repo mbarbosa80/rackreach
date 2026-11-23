@@ -281,9 +281,10 @@ export const api = {
   importAliases: (id: number, body: any) =>
     req<any>(`/projects/${id}/aliases/import`, { method: "POST", body: JSON.stringify(body) }),
   report: (id: number, fmt: "pdf" | "xlsx" | "csv",
-           background = false, legend = true, lines = true, notes = false) =>
+           background = false, legend = true, lines = true, notes = false, radii = true) =>
     req<any>(`/projects/${id}/reports/${fmt}` +
-             `?background=${background}&legend=${legend}&lines=${lines}&notes=${notes}`,
+             `?background=${background}&legend=${legend}&lines=${lines}&notes=${notes}` +
+             `&radii=${radii}`,
              { method: "POST" }),
   audit: (id: number) => req<any[]>(`/projects/${id}/audit`),
 
@@ -315,8 +316,8 @@ export const api = {
     }),
   undoMapMove: (id: number, auditId: number) =>
     req<any>(`/projects/${id}/composite/undo/${auditId}`, { method: "POST" }),
-  compositeReport: (id: number, legend = true, notes = false) =>
-    req<any>(`/projects/${id}/composite-report?legend=${legend}&notes=${notes}`,
+  compositeReport: (id: number, legend = true, notes = false, radii = true) =>
+    req<any>(`/projects/${id}/composite-report?legend=${legend}&notes=${notes}&radii=${radii}`,
              { method: "POST" }),
   accountAudit: () => req<any[]>(`/admin/audit`),
   templates: () => req<any[]>(`/mapping-templates`),

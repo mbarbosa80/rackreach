@@ -2598,6 +2598,9 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
   //: NER notes printed on the PDFs (5.7.0): off by default - a note may
   //: cover the drawing; it is for the meeting, not the design team.
   const [withNotes, setWithNotes] = useState(false);
+  //: The 90 / 70 m reach circles on both PDFs (5.9.0): on by default; a
+  //: master plan with every NER of the venue is easier to read without them.
+  const [radii, setRadii] = useState(true);
   const reportJob = useJob();
   if (!p) return null;
 
@@ -2630,7 +2633,7 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
   const make = async (fmt: "pdf" | "xlsx" | "csv") => {
     try {
       if (fmt === "pdf") {
-        await reportJob.start(() => api.report(p.id, fmt, true, legend, lines, withNotes), async (j) => {
+        await reportJob.start(() => api.report(p.id, fmt, true, legend, lines, withNotes, radii), async (j) => {
           if (j.state === "error") { ctx.notify(j.error, "err"); return; }
           if (j.state !== "done") return;
           await finish(j.result, fmt);
@@ -2644,7 +2647,7 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
   //: The composite map PDF (5.0.0), beside the marked-up one, never instead.
   const makeComposite = async () => {
     try {
-      await reportJob.start(() => api.compositeReport(p.id, legend, withNotes), async (j) => {
+      await reportJob.start(() => api.compositeReport(p.id, legend, withNotes, radii), async (j) => {
         if (j.state === "error") { ctx.notify(j.error, "err"); return; }
         if (j.state !== "done") return;
         await finish(j.result, "pdf");
@@ -2683,6 +2686,12 @@ export function ReportsPanel({ ctx }: { ctx: Ctx }) {
             <input type="checkbox" checked={withNotes} style={{ width: "auto" }}
                    onChange={(e) => setWithNotes(e.target.checked)} />
             {t("with NER notes")}
+          </label>
+          <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 0 }}
+                 title={t("The dashed 90 m and 70 m circles around each NER, on both PDFs. Turned off, the markers, the colours and the limits written in the legend stay as they are.")}>
+            <input type="checkbox" checked={radii} style={{ width: "auto" }}
+                   onChange={(e) => setRadii(e.target.checked)} />
+            {t("with reach circles")}
           </label>
           <button disabled={reportJob.busy}
                   title={t("One page per composite map built (Composite map card below): the sheets of a level as one map, every NER with its reach and the Wi-Fi points. The legend on the first page only.")}

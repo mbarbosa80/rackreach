@@ -440,21 +440,27 @@ def test_choosing_a_room_on_another_page_declares_the_other_level(client):
 # 4 and 5. The marked-up PDF: bigger markers, optional lines
 # ---------------------------------------------------------------------------
 
-def _marked(tmp_path, *, draw_links: bool) -> pymupdf.Page:
+def _marked(tmp_path, *, draw_links: bool, scales=None) -> pymupdf.Page:
     src = _pdf(str(tmp_path / f"src-{draw_links}.pdf"), pages=1)
     out = str(tmp_path / f"out-{draw_links}.pdf")
     rooms = [ner("N1", 150)]
     res = run([area("S", x=100)], rooms)
-    export_marked_pdf(src, out, coverage=res, ners=rooms, scale_for_page=SCALES,
+    export_marked_pdf(src, out, coverage=res, ners=rooms, scale_for_page=scales or SCALES,
                       rules=RULES, draw_links=draw_links)
     return pymupdf.open(out)[0]
+
+
+#: A detail sheet at 1:100 - the full-size marker (5.9.0: the marker is sized
+#: by the sheet's scale, and SCALES' 1 unit = 1 m is a 1:2835 sheet).
+DETAIL = {1: Scale(metres_per_unit=100 / 2834.645669, source="manual", label="1:100",
+                   confirmed=True)}
 
 
 def test_the_marker_is_twice_the_size_and_the_name_two_points_bigger_and_bold(tmp_path):
     assert MARKER_RADIUS == 12.0, "was 6"
     assert MARKER_LABEL_SIZE == 9.0, "was 7"
     assert MARKER_LABEL_FONT == "hebo", "Helvetica-Bold"
-    page = _marked(tmp_path, draw_links=True)
+    page = _marked(tmp_path, draw_links=True, scales=DETAIL)
     widths = [round(d["rect"].width) for d in page.get_drawings()]
     assert 24 in widths, f"a 12 pt-radius dot should be on the sheet; widths: {widths}"
     spans = [s for b in page.get_text("dict")["blocks"] for l in b.get("lines", [])
@@ -474,7 +480,10 @@ def test_the_lines_can_be_left_off_and_the_rest_stays(tmp_path):
     for page in (with_lines, without):
         assert "room N1" in page.get_text()
         assert "NER COVERAGE" in page.get_text()
-        assert 24 in [round(d["rect"].width) for d in page.get_drawings()]
+        # the marker, at the size this sheet's scale gives it (5.9.0)
+        from app.domain.reports import marker_factor
+        want = round(2 * MARKER_RADIUS * marker_factor(SCALES[1]))
+        assert want in [round(d["rect"].width) for d in page.get_drawings()]
 
 
 def test_a_room_on_another_page_is_named_beside_the_space(tmp_path):

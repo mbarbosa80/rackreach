@@ -440,8 +440,13 @@ def evaluate_area(
     match_confirmed: bool = True,
     route_far_m: Optional[float] = None,
     route_scales_confirmed: Optional[bool] = None,
+    farthest_units: Optional[float] = None,
 ) -> DistanceEvaluation:
     """Convenience wrapper: measure an :class:`Area` against a NER position.
+
+    ``farthest_units`` (5.9.0-rc8) replaces the straight line from the room's
+    farthest vertex to ``ner_point``, in this sheet's units: across a match
+    line the far corner is measured across the line, not to the stand-in.
 
     ``route_far_m`` and ``route_scales_confirmed`` go with every route (see
     :func:`evaluate_distance`; 5.6.0). Given with a route on the same sheet,
@@ -484,6 +489,8 @@ def evaluate_area(
     far = area.farthest_vertex_from(ner_point)
     method = DistanceMethod.ROUTE if route_length_m is not None else DistanceMethod.STRAIGHT_LINE
     far_units = far[1] if far else None
+    if farthest_units is not None and route_length_m is None:
+        far_units = farthest_units
     if route_length_m is not None and route_far_m is not None:
         # The farthest vertex along the traced route, as across levels
         # (5.6.0, every project): a straight line from that vertex to the

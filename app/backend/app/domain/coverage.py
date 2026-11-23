@@ -17,6 +17,7 @@ from .distance import (ALERT_CRITICAL_NER_IN_LIMIT, ALERT_LABEL,
 from .geometry import Area, Point
 from .sheetnames import page_label
 from .pdf_ingest import ElementKind
+from .joints import PageJoint, shortest_across, stand_in
 from .routes import RouteNetwork
 from .units import Scale
 
@@ -556,6 +557,25 @@ def _unmeasured(area: Area, serving: Sequence[NER], scale_for_page: dict[int, Sc
             f"{where} {has} no scale: no NER can be measured from this space")
 
 
+def _across_note(across, ner_label: str, ner_page: int) -> str:
+    """The space's note for a distance measured across match lines (rc7;
+    rc8: two decimals, as the manual quotes it, and a sheet in between)."""
+    j = across.joint
+    if across.joint2 is None:
+        return (f"measured across the match line {j.label or j.key} to {ner_label} on "
+                f"{page_label(ner_page)}: {across.here_m:.2f} m on this sheet + "
+                f"{float(j.gap_m or 0):.2f} m between the sheets + {across.there_m:.2f} m "
+                f"on {page_label(ner_page)}, each a straight line.")
+    j2 = across.joint2
+    gap = float(j.gap_m or 0) + float(j2.gap_m or 0)
+    return (f"measured across the match lines {j.label or j.key} and {j2.label or j2.key}, "
+            f"through {page_label(across.mid_page)}, to {ner_label} on "
+            f"{page_label(ner_page)}: {across.here_m:.2f} m on this sheet + "
+            f"{across.mid_m:.2f} m on {page_label(across.mid_page)} + {across.there_m:.2f} m "
+            f"on {page_label(ner_page)} + {gap:.2f} m between the sheets, each a straight "
+            f"line.")
+
+
 def compute_coverage(
     *,
     areas: Sequence[tuple[Area, float, DemandType, Optional[bool], bool]],
@@ -568,8 +588,16 @@ def compute_coverage(
     pin_sources: Optional[dict[str, str]] = None,
     cross_level: Optional[set[str]] = None,
     enforce_criticality: bool = True,
+    joints: Optional[Sequence[PageJoint]] = None,
 ) -> CoverageResult:
     """Assign every area to the most suitable NER.
+
+    ``joints`` (5.9.0-rc7): match lines a person marked between two sheets of
+    one level (:mod:`.joints`). A NER on the other sheet of a joint is
+    measured across it - straight to the line on the space's sheet, the gap,
+    straight on from the line on the NER's sheet - and competes as a NER of
+    the space's own sheet: same level, same rules. Without a joint a NER on
+    another sheet is reached only by a shaft or riser, as before.
 
     ``enforce_criticality`` False (5.6.0, the default of every project, owner's
     decision of 6 Nov 2026 "only alert"): ``is_critical`` never changes which
@@ -832,6 +860,44 @@ def compute_coverage(
                             # then along the route.
                             scales_ok = _scales_confirmed(r, scale_for_page)
                             far_m = _route_far_m(occ, here_pt, r, occ_scale)
+                    eval_pt, eval_scale, across, far_units = npt, occ_scale, None, None
+                    if not same_level and joints and occ_scale is not None:
+                        # Across a match line to the next sheet of this level
+                        # (5.9.0-rc7): the NER competes as one of this sheet.
+                        ner_scale = scale_for_page.get(npt.page)
+                        if ner_scale is not None:
+                            across = shortest_across(occ.representative_point(), occ_scale,
+                                                     npt, ner_scale, joints,
+                                                     scales=scale_for_page)
+                        if across is not None:
+                            eval_pt = stand_in(occ.representative_point(), across, occ_scale)
+                            # Definitive only when both sheets' scales are -
+                            # and the scale of a sheet in between (rc8).
+                            mid_ok = across.mid_page is None or bool(
+                                getattr(scale_for_page.get(across.mid_page), "confirmed", False))
+                            eval_scale = replace(occ_scale, confirmed=bool(
+                                occ_scale.confirmed and ner_scale.confirmed and mid_ok))
+                            # The room's far corner measured across the line
+                            # too (rc8, T7-1): the stand-in sits on the line
+                            # from the centre, and with a gap a side corner
+                            # came out nearer than its real path.
+                            if getattr(occ, "polygon", None):
+                                fars = [shortest_across(Point(vx, vy, occ.page), occ_scale,
+                                                        npt, ner_scale, joints,
+                                                        scales=scale_for_page)
+                                        for vx, vy in occ.polygon]
+                                fars = [p.length_m for p in fars if p is not None]
+                                if fars:
+                                    far_units = max(fars) / occ_scale.metres_per_unit
+                            # A route through another level to the same NER
+                            # (rc8, T7-2): the NER is on this level across
+                            # the line, so it is measured on the level, and
+                            # the way round another level only when shorter -
+                            # as for a NER on the space's own sheet.
+                            if r is not None and route_len is not None:
+                                detour, r, route_len = r, None, None
+                                far_m = scales_ok = shorter = None
+                            same_level, ignored = True, None
                     if not same_level and route_len is None:
                         if ignored and ner.key not in cross_notes:
                             cross_notes[ner.key] = (
@@ -842,12 +908,17 @@ def compute_coverage(
                             cross_note_len[ner.key] = float(ignored["length_m"])
                             ignored_cross.add(ner.key)
                         continue
-                    ev = evaluate_area(area=occ, ner_point=npt, scale=occ_scale,
+                    ev = evaluate_area(area=occ, ner_point=eval_pt, scale=eval_scale,
                                        rules=rules, demand_type=demand_type,
                                        route_length_m=route_len,
                                        match_confirmed=match_confirmed,
                                        route_far_m=far_m,
-                                       route_scales_confirmed=scales_ok)
+                                       route_scales_confirmed=scales_ok,
+                                       farthest_units=far_units)
+                    if across is not None:
+                        ev.detail["joint"] = ", ".join(j.label or j.key for j in across.joints)
+                        ev.detail["joint_sheet"] = npt.page
+                        ev.assumptions.append(_across_note(across, ner.label, npt.page))
                     if shorter is not None and r:
                         ev.assumptions.append(
                             _not_counting_note(ner.label, shorter, "by a shorter connection")
@@ -1583,8 +1654,13 @@ def compute_coverage(
             # The next rooms by distance, the serving one left out — which is
             # not always ``scored[0]``: a pin or a full room moves it.
             alternatives=alternatives,
-            ner_page=(ner.point_on(used.page) or ner.point).page,
-            cross_level=(ner.point_on(used.page) is None),
+            # Across a match line (rc8, T7-4) the NER is on the space's
+            # level, on the sheet the line leads to - not "another level".
+            ner_page=((ev.detail or {}).get("joint_sheet")
+                      if ev is not None and (ev.detail or {}).get("joint")
+                      else (ner.point_on(used.page) or ner.point).page),
+            cross_level=(ner.point_on(used.page) is None
+                         and not (ev is not None and (ev.detail or {}).get("joint"))),
             measured_page=(used.page if used is not area else None),
             kind=str(area.meta.get("kind") or "space"),
             space_critical=teap_critical, criticality_alert=alert,

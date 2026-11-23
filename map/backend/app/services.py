@@ -99,7 +99,9 @@ def store_upload(project_id: int, filename: str, src, *,
     if size_mb > settings.max_upload_mb:
         target.unlink(missing_ok=True)
         raise ValidationError(f"file is {size_mb:.0f} MB, over the "
-                              f"{settings.max_upload_mb} MB limit")
+                              f"{settings.max_upload_mb} MB limit of this installation "
+                              f"(NER_MAX_UPLOAD_MB). Split the book into two PDFs, "
+                              f"or ask whoever installed the app to raise the limit")
     return target
 
 
@@ -1408,15 +1410,20 @@ def set_page_level(db: Session, project: Project, page_no: int, level: Optional[
         raise ValidationError(f"page {page_no} not found")
     # rc3 (rc1 tester's risks): no control character in a level, and no
     # level typed on a key plan - it serves no NER; the screen never offered it.
-    if level and any(ord(ch) < 32 or 127 <= ord(ch) < 160 for ch in str(level)):
-        raise ValidationError("a level cannot contain control characters")
+    # 1.5.0 (F2-1): the NER field's rule - no invisible character, at most
+    # 40 characters as stored, refused and never cut.
+    from .domain.consolidation import checked_level
+    try:
+        checked = checked_level(level)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
     if level and str(level).strip() and getattr(pg, "key_plan", False):
         raise ValidationError("this page is a key plan: a level is typed on the detail "
                               "sheets, whose NERs take it")
     if (pg.level or "").strip() and pg.level_source != "manual":
         raise ConflictError(f"the drawing title of this page states {pg.level}; "
                             f"a level read off the drawing is not changed here")
-    new = normalise_level(level)
+    new = checked
     old = pg.level
     pg.level = new
     pg.level_source = "manual" if new else None

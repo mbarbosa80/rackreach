@@ -651,20 +651,12 @@ def update_fields(db: Session, project: Project, asset: NerAsset, values: dict, 
             # level, chosen like indoor / outdoor. Written as the titles write
             # it ("2" -> "LEVEL 02") and kept as chosen by hand: no page level
             # overwrites it. Empty gives the NER back its sheet's level.
-            from .domain.consolidation import normalise_level
-            import unicodedata
-            if value is not None and not isinstance(value, str):
-                raise RegisterError("a level is text")
-            raw = value or ""
-            # 1.4.0-rc2 (T3-4): invisible characters too - a zero-width space
-            # looks blank, a direction override turns the text around.
-            if any(ord(ch) < 32 or 127 <= ord(ch) < 160
-                   or unicodedata.category(ch) in ("Cf", "Co", "Cs") for ch in raw):
-                raise RegisterError("a level cannot contain control or invisible characters")
-            # T3-6: refused, never cut
-            if len(" ".join(raw.split())) > 40:
-                raise RegisterError("a level has at most 40 characters")
-            value = normalise_level(raw)
+            # One rule with the Scale screen's page level (1.5.0, F2-1/F2-6).
+            from .domain.consolidation import checked_level
+            try:
+                value = checked_level(value)
+            except ValueError as exc:
+                raise RegisterError(str(exc)) from exc
             src = "manual" if value else None
             if value is None:
                 value = _sheet_level(db, asset)
@@ -1146,6 +1138,11 @@ def consolidate(db: Session, project: Project, primary_id: int, duplicate_id: in
         primary.level_source = dup.level_source      # typed by hand stays "by you"
     if not primary.building and dup.building:
         primary.building = dup.building
+    # The level the merge left (1.5.0, F2-3): the undo gives back the level
+    # from before only while this one is still there - a level a person typed
+    # on the NER after the merge is theirs and stays.
+    snapshot["primary_after"] = {"level": primary.level,
+                                 "level_source": primary.level_source}
     primary.updated_by = actor
 
     dup.merged_into_id = primary.id
@@ -1207,8 +1204,17 @@ def undo_consolidation(db: Session, project: Project, consolidation_id: int, *,
         if "total_ports" in pb:
             primary.total_ports = pb["total_ports"]
         if "level" in pb:
-            primary.level = pb["level"]
-            primary.level_source = pb.get("level_source")
+            after = snap.get("primary_after")
+            if after is None:
+                # A merge recorded by 5.8.0: the level it left is the
+                # duplicate's when the primary had none, else unchanged.
+                after = ({"level": dup.level, "level_source": dup.level_source}
+                         if not pb["level"] and dup.level else
+                         {"level": pb["level"], "level_source": pb.get("level_source")})
+            if (primary.level, primary.level_source) == (after.get("level"),
+                                                          after.get("level_source")):
+                primary.level = pb["level"]
+                primary.level_source = pb.get("level_source")
         primary.updated_by = actor
 
     rec.undone_at = _now()

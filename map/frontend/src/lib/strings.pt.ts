@@ -801,6 +801,8 @@ export const PT: Record<string, string> = {
   "Click to read every note": "Clique para ler todas as notas",
   "with NER → space lines": "com linhas NER → espaço",
   "with NER notes": "com notas das NERs",
+  "with reach circles": "com círculos de alcance",
+  "The dashed 90 m and 70 m circles around each NER, on both PDFs. Turned off, the markers, the colours and the limits written in the legend stay as they are.": "Os círculos tracejados de 90 m e 70 m em volta de cada NER, nos dois PDFs. Desligado, os marcadores, as cores e os limites escritos na legenda continuam como estão.",
   "The NER's level: pick one the sheets state or type another (B1, Mezzanine). Empty gives it back the level of its sheet. Goes to the NERs sheet of the workbook.": "O nível da NER: escolha um dos níveis das folhas ou digite outro (B1, Mezzanine). Vazio volta ao nível da folha. Vai para a aba NERs da planilha.",
   "by you": "por você",
   "Serve another level?": "Atender outro nível?",

@@ -24,7 +24,12 @@ class Settings(BaseSettings):
         "NER_DATABASE_URL",
         f"sqlite:///{Path(os.environ.get('NER_DATA_DIR', BASE_DIR / 'data')) / 'ner.sqlite3'}")
 
-    max_upload_mb: int = int(os.environ.get("NER_MAX_UPLOAD_MB", "200"))
+    #: The largest file an upload may be (5.9.0-rc8: 1024 MB, was 200). A
+    #: 900-series book of a whole venue passed 200 MB (222 MB, 22 Nov 2026) and
+    #: was refused; nothing in the app needs the 200: the upload is written to
+    #: disk in 1 MB pieces, the book is read in a child process and a large
+    #: sheet is drawn in tiles. ``NER_MAX_UPLOAD_MB`` still sets another value.
+    max_upload_mb: int = int(os.environ.get("NER_MAX_UPLOAD_MB", "1024"))
     allowed_pdf_types: tuple[str, ...] = ("application/pdf",)
     allowed_sheet_suffixes: tuple[str, ...] = (".xlsx", ".xlsm", ".csv")
 

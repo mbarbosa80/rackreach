@@ -132,8 +132,15 @@ def _norm(v: Optional[str]) -> Optional[str]:
 # The word in front and what separates it: "LEVEL 02", "LEVEL: 2", "LVL-3"
 # (a dash straight after the word). A minus after a space is a sign:
 # "LEVEL -1" is a basement, not level 1 (rc3, T2-3).
+# 1.5.0 (F2-2): the word may touch the number ("LEVEL2", "FLOOR2", "LVL2", as
+# a title block can print it) and "L-1" is the basement, as normalise_level
+# reads them - the two must agree, or the composite map groups two sheets the
+# merge calls different floors.
+# 1.5.0-rc3 (T4-3): also a lettered level touching the word or after a dash
+# ("LEVELB1", "FLOORP2", "LEVEL-B1"), read as "LEVEL B1" by normalise_level.
 _LEVEL_WORD_RX = re.compile(
-    r"^(?:(?:LEVEL|LVL|FLOOR|NIVEL|NÍVEL)\b(?:\s*:\s*|-(?=\d)|\s+)|L(?=\d))", re.I)
+    r"^(?:(?:LEVEL|LVL|FLOOR|NIVEL|NÍVEL)(?:\s*:\s*|-(?=[A-Z]?\d)|\s+|(?=-?[A-Z]?\d))|L(?=-?\d))",
+    re.I)
 _LEVEL_NUM_RX = re.compile(r"^(-?)([A-Z]?)0*(\d+)([A-Z]?)$")
 
 
@@ -155,12 +162,66 @@ def level_key(v: Optional[str]) -> Optional[str]:
 #: A level typed on the Scale screen: "02", "B1", "L3", "level 2", "LEVEL 02",
 #: "Mezzanine" - kept as the drawing titles write it, "LEVEL <x>".
 _LEVEL_SHORT_RX = re.compile(
-    r"^(?:(?:LEVEL|LVL|FLOOR|NIVEL|NÍVEL)(?:\s*:\s*|-(?=\d)|\s+)?|L(?=-?\d))?(-?[A-Z]?\d{1,3}[A-Z]?)$",
+    r"^(?:(?:LEVEL|LVL|FLOOR|NIVEL|NÍVEL)(?:\s*:\s*|-(?=[A-Z]?\d)|\s+)?|L(?=-?\d))?(-?[A-Z]?\d{1,3}[A-Z]?)$",
     re.I)
 
 
-def normalise_level(text: Optional[str]) -> Optional[str]:
-    """A level as the title blocks write it (``LEVEL 02``), or ``None``."""
+#: The longest level a person may type (5.8.0, T3-6), counted as stored.
+LEVEL_MAX = 40
+
+#: Characters that show as nothing but are not format characters (1.5.0-rc3,
+#: T4-4): Hangul fillers, the blank braille pattern, the combining grapheme
+#: joiner, Khmer inherent vowels, Mongolian free variation selectors. The
+#: variation selectors (U+FE00-FE0F, U+E0100-E01EF) are refused by range.
+#: Kept as typed by the NFKC step (1.5.0-rc5): the ordinal indicators ª º
+#: and the superscript digits ¹ ² ³.
+_KEEP_AS_TYPED = frozenset({0x00AA, 0x00BA, 0x00B9, 0x00B2, 0x00B3})
+
+_BLANK_LOOKING = frozenset({0x115F, 0x1160, 0x3164, 0xFFA0, 0x2800, 0x034F,
+                            0x17B4, 0x17B5, 0x180B, 0x180C, 0x180D, 0x180F})
+
+
+def checked_level(raw) -> Optional[str]:
+    """A level a person typed, checked and written as stored (1.5.0).
+
+    One rule for the NER's Level field and the Scale screen's page level
+    (F2-1): no control or invisible character (a zero-width space looks
+    blank, a direction override turns the text around), and at most
+    :data:`LEVEL_MAX` characters *as stored* - refused, never cut, also when
+    upper-casing makes the text longer ("ß" -> "SS", F2-6). Empty -> ``None``.
+    Raises ``ValueError`` with the message to show."""
+    import unicodedata
+    if raw is None:
+        return None
+    if not isinstance(raw, str):
+        raise ValueError("a level is text")
+    # Compatibility forms written plainly first (1.5.0-rc3): a full-width
+    # "０２" is "02", so it is LEVEL 02 for the composite map as well. Not the
+    # ordinal indicators, superscripts or squared units (1.5.0-rc5, T5-1):
+    # "2ª" would become "2A", a real lettered level - a false pairing; and
+    # "2º" / "1º andar" would gain a letter O.
+    # Composed first (1.5.0-rc6, T6-1): a decomposed "Ni\u0301vel" (a macOS
+    # file name, some PDF text) is "Nível", so it is LEVEL 02 / the same
+    # "TÉRREO" a person types; the per-character step below cannot compose.
+    raw = unicodedata.normalize("NFC", raw)
+    raw = "".join(ch if ord(ch) in _KEEP_AS_TYPED or 0x2070 <= ord(ch) <= 0x209F
+                  or 0x3300 <= ord(ch) <= 0x33FF else unicodedata.normalize("NFKC", ch)
+                  for ch in raw)
+    if any(ord(ch) < 32 or 127 <= ord(ch) < 160
+           or unicodedata.category(ch) in ("Cf", "Co", "Cs")
+           or ord(ch) in _BLANK_LOOKING
+           or 0xFE00 <= ord(ch) <= 0xFE0F or 0xE0100 <= ord(ch) <= 0xE01EF
+           for ch in raw):
+        raise ValueError("a level cannot contain control or invisible characters")
+    full = normalise_level(raw, cut=False)
+    if full is not None and len(full) > LEVEL_MAX:
+        raise ValueError(f"a level has at most {LEVEL_MAX} characters")
+    return full
+
+
+def normalise_level(text: Optional[str], *, cut: bool = True) -> Optional[str]:
+    """A level as the title blocks write it (``LEVEL 02``), or ``None``.
+    ``cut`` keeps the old 40-character cut for text read off a drawing."""
     v = " ".join(str(text or "").split()).strip()
     if not v:
         return None
@@ -173,7 +234,7 @@ def normalise_level(text: Optional[str]) -> Optional[str]:
         if d and not d.group(1) and len(d.group(2)) == 1:
             part = f"{d.group(1)}0{d.group(2)}{d.group(3)}"
         return f"LEVEL {part}"
-    return v.upper()[:40]
+    return v.upper()[:LEVEL_MAX] if cut else v.upper()
 
 
 def compare(a: Candidate, b: Candidate) -> Comparison:

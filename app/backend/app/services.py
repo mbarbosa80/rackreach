@@ -38,7 +38,8 @@ from .domain.units import Scale
 from . import sheets as SH
 from .models import (SpaceOccurrenceLink, Alias, AuditLog, Criticality, Drawing, DrawingSpace, Element,
                      KeepDecision, NerAsset, NerStatus, Page, Project, RouteSegmentRow,
-                     Scenario, SpaceMatchRow, TeapFile, TeapSpace, VerticalLinkRow, Zone)
+                     Scenario, SpaceMatchRow, TeapFile, TeapSpace, VerticalLinkRow, Zone,
+                     PageJointRow)
 
 #: A job's progress callback: ``(fraction, stage)``. Raising from it aborts the
 #: operation, which is how cancellation propagates into the domain code.
@@ -99,7 +100,9 @@ def store_upload(project_id: int, filename: str, src, *,
     if size_mb > settings.max_upload_mb:
         target.unlink(missing_ok=True)
         raise ValidationError(f"file is {size_mb:.0f} MB, over the "
-                              f"{settings.max_upload_mb} MB limit")
+                              f"{settings.max_upload_mb} MB limit of this installation "
+                              f"(NER_MAX_UPLOAD_MB). Split the book into two PDFs, "
+                              f"or ask whoever installed the app to raise the limit")
     return target
 
 
@@ -488,6 +491,11 @@ def delete_drawing(db: Session, project: Project, drawing: Drawing, *,
             or_(here(VerticalLinkRow.lower_drawing_id),
                 here(VerticalLinkRow.upper_drawing_id)))).scalars():
         db.delete(v)
+    # A match line with a foot on this book goes with it (5.9.0-rc7).
+    for jr in db.execute(select(PageJointRow).where(
+            PageJointRow.project_id == project.id,
+            or_(here(PageJointRow.a_drawing_id), here(PageJointRow.b_drawing_id)))).scalars():
+        db.delete(jr)
     db.flush()
 
     path = Path(drawing.stored_path) if drawing.stored_path else None
@@ -1408,15 +1416,20 @@ def set_page_level(db: Session, project: Project, page_no: int, level: Optional[
         raise ValidationError(f"page {page_no} not found")
     # rc3 (rc1 tester's risks): no control character in a level, and no
     # level typed on a key plan - it serves no NER; the screen never offered it.
-    if level and any(ord(ch) < 32 or 127 <= ord(ch) < 160 for ch in str(level)):
-        raise ValidationError("a level cannot contain control characters")
+    # 5.9.0 (F2-1): the NER field's rule - no invisible character, at most
+    # 40 characters as stored, refused and never cut.
+    from .domain.consolidation import checked_level
+    try:
+        checked = checked_level(level)
+    except ValueError as exc:
+        raise ValidationError(str(exc)) from exc
     if level and str(level).strip() and getattr(pg, "key_plan", False):
         raise ValidationError("this page is a key plan: a level is typed on the detail "
                               "sheets, whose NERs take it")
     if (pg.level or "").strip() and pg.level_source != "manual":
         raise ConflictError(f"the drawing title of this page states {pg.level}; "
                             f"a level read off the drawing is not changed here")
-    new = normalise_level(level)
+    new = checked
     old = pg.level
     pg.level = new
     pg.level_source = "manual" if new else None
@@ -1616,8 +1629,11 @@ def import_teap(db: Session, project: Project, teap: TeapFile,
         if path.suffix.lower() == ".csv":
             # A CSV is checked as a workbook is (rc3).
             from .domain.teap_import import list_venues
+            # Rows with no venue at all are not one more venue (5.9.0, F2-5):
+            # the workbook check (preview_venues) and the screen skip them.
             venues = [{"venue_code": c, "venue_name": n, "rows": k}
-                      for c, n, k in list_venues(read_csv(str(path), teap.mapping))]
+                      for c, n, k in list_venues(read_csv(str(path), teap.mapping))
+                      if (c or "").strip() or (n or "").strip()]
         else:
             venues = preview_venues(str(path), teap.sheet, teap.header_row, teap.mapping)
         if len(venues) > 1:
@@ -2354,6 +2370,44 @@ def build_route_network(db: Session, project: Project,
                       Point(v.upper_x, v.upper_y, sh.key(v.upper_drawing_id, v.upper_page)),
                       v.length_m, v.kind, v.label) for v in verts],
         scales)
+
+
+def page_joints(db: Session, project: Project) -> list:
+    """The project's match lines as the engine reads them (5.9.0-rc7), each
+    end on its sheet key."""
+    from .domain.joints import PageJoint
+    sh = SH.for_project(db, project.id)
+    out = []
+    for r in db.execute(select(PageJointRow).where(PageJointRow.project_id == project.id)
+                        .order_by(PageJointRow.id)).scalars():
+        # Two sheets that are on two levels now (a level changed after the
+        # line was drawn) are not joined (rc8, tester T7-3): between levels
+        # it is a shaft or riser. The line stays, and the viewer says why.
+        if joint_levels_differ(db, r):
+            continue
+        out.append(PageJoint(key=f"J{r.id}", a_page=sh.key(r.a_drawing_id, r.a_page),
+                             a1=(r.a_x1, r.a_y1), a2=(r.a_x2, r.a_y2),
+                             b_page=sh.key(r.b_drawing_id, r.b_page),
+                             b1=(r.b_x1, r.b_y1), b2=(r.b_x2, r.b_y2),
+                             gap_m=float(r.gap_m or 0.0), label=r.label or f"J{r.id}"))
+    return out
+
+
+def joint_levels_differ(db: Session, row) -> Optional[str]:
+    """``"LEVEL 01 and LEVEL 02"`` when the two sheets of a match line are on
+    two different levels, else None (rc8, T7-3). A sheet with no level does
+    not differ from any."""
+    def level(did, page):
+        if did is None:
+            did = db.execute(select(func.min(Drawing.id)).where(
+                Drawing.project_id == row.project_id)).scalar()
+        pg = db.execute(select(Page).where(Page.drawing_id == did,
+                                           Page.number == page)).scalars().first()
+        return (pg.level or None) if pg is not None else None
+    la, lb = level(row.a_drawing_id, row.a_page), level(row.b_drawing_id, row.b_page)
+    if la and lb and level_key(la) != level_key(lb):
+        return f"{la} and {lb}"
+    return None
 
 
 def has_teap_data_error(t: TeapSpace) -> bool:
@@ -3464,7 +3518,8 @@ def analyse(db: Session, project: Project, *, scenario_name: str = "As-Is",
                                   rules=distance_rules(project), network=net,
                                   pinned=pins, pin_sources=pin_sources,
                                   cross_level=cross_level_declarations(db, project),
-                                  enforce_criticality=bool(project.criticality_enforced))
+                                  enforce_criticality=bool(project.criticality_enforced),
+                                  joints=page_joints(db, project))
     say(1.0, f"{result.summary()['served']:,} of {len(areas):,} within limits")
     return result, ners
 

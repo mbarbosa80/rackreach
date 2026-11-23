@@ -26,7 +26,7 @@ type Tool =
   | "select" | "add-ner-critical" | "add-ner" | "add-ter" | "add-idf" | "add-cow"
   | "add-diva" | "add-ner-ref-critical" | "add-ner-ref"
   | "add-ter-ref" | "add-cow-ref" | "add-diva-ref" | "area"
-  | "add-wireless" | "route" | "vertical" | "measure" | "delete";
+  | "add-wireless" | "route" | "vertical" | "match" | "measure" | "delete";
 
 /** The toolbox (2.14.0: a column down the left of the sheet, not a strip
  *  across the top), in groups: what the study counts, what the plan shows,
@@ -39,7 +39,9 @@ const TOOL_GROUPS: Tool[][] = [
   ["add-ter", "add-idf", "add-cow", "add-diva"],
   ["add-wireless"],
   ["add-ner-ref-critical", "add-ner-ref", "add-ter-ref", "add-cow-ref", "add-diva-ref", "area"],
-  ["route", "vertical"],
+  // A match line (5.9.0-rc7) joins two sheets of one level where the plan
+  // was cut: a NER on one serves a space on the other, measured across it.
+  ["route", "vertical", "match"],
   // The ruler (4.7.0): measures on the sheet's scale, saves nothing, goes in
   // no report. Kept apart from route on purpose — a route is used by the
   // analysis, a measure is a quick look.
@@ -47,6 +49,9 @@ const TOOL_GROUPS: Tool[][] = [
   ["delete"],
 ];
 const ILLUSTRATIVE_TOOLS = new Set<Tool>(TOOL_GROUPS[4]);
+/** A match line on the sheet (5.9.0-rc7): magenta, apart from the teal of a
+ *  shaft and from every NER colour. */
+const JOINT_COLOUR = "#c2185b";
 /** What a key plan does not take (2.13.0): a key plan only illustrates, so a
  *  NER or an access point is placed on the detail sheet and pointed at here
  *  with a *NER reference. The server refuses them too. */
@@ -98,6 +103,7 @@ const TOOL_LABEL: Record<string, string> = {
   "add-wireless": "+Wi-Fi",
   "route": "route",
   "vertical": "vertical",
+  "match": "match line",
   "measure": "measure",
   // The eraser: click anything that was drawn — a marker, a wireless point, a
   // route segment, a shaft — and it goes. Stays armed, like +Wireless.
@@ -214,6 +220,13 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
   //: Shafts / risers registered on this page (either end). They used to be
   //  invisible once created, which also made them impossible to take back.
   const [verticals, setVerticals] = useState<any[]>([]);
+  /** Match lines with a foot on this sheet (5.9.0-rc7). */
+  const [joints, setJoints] = useState<any[]>([]);
+  /** The match line being marked: two ends on sheet A, then the same two
+   *  ends, in the same order, on sheet B. Survives a page change on purpose —
+   *  the second half is marked on the other sheet. */
+  const [jointDraft, setJointDraft] = useState<
+    { aPage: number; a: number[][]; bPage: number | null; b: number[][] } | null>(null);
   const [coverage, setCoverage] = useState<any | null>(null);
   /** When the analysis shown was run, and whether something changed after
    *  it (4.7.0): the overlay is the last *saved* run, read on opening. */
@@ -449,13 +462,15 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
     // Only a sheet the project has (4.2.0) — the page effect above moves an
     // unknown one to the first sheet, and this runs again then.
     if (p.pages?.length && !p.pages.some((x: any) => x.number === page)) return;
-    const [els, sps, rts, reg, vts, ties, names, zones] = await Promise.all([
+    const [els, sps, rts, reg, vts, ties, names, zones, jts] = await Promise.all([
       api.elements(p.id, page), api.drawingSpaces(p.id, page),
       api.routes(p.id), api.nerAssetPositions(p.id, page), api.verticals(p.id),
       api.wirelessTieOptions(p.id).catch(() => []),
       api.ners(p.id).catch(() => ({ ners: [] })),
       api.zones(p.id, page).catch(() => []),
+      api.pageJoints(p.id).catch(() => []),
     ]);
+    setJoints((jts as any[]).filter((j: any) => j.a_page === page || j.b_page === page));
     setAreas((zones as any[]).filter((z: any) => z.kind === "area"));
     setVerticals(vts.filter((v: any) => v.lower_page === page || v.upper_page === page));
     setTieOptions(ties);
@@ -853,6 +868,57 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
       return;
     }
 
+    if (tool === "match") {
+      // Two ends on this sheet, then the same two ends on the other sheet of
+      // the level (5.9.0-rc7). End 1 goes with end 1, end 2 with end 2.
+      const d = jointDraft;
+      const q = [pt.x, pt.y];
+      if (!d || (d.bPage == null && d.a.length < 2 && d.aPage !== page)) {
+        setJointDraft({ aPage: page, a: [q], bPage: null, b: [] });
+        return;
+      }
+      if (d.a.length < 2) {
+        if (Math.hypot(d.a[0][0] - q[0], d.a[0][1] - q[1]) < 3 / zoom) return;
+        setJointDraft({ ...d, a: [...d.a, q] });
+        ctx.notify(t("Now open the other sheet of this level and click the same line there: end 1 first, then end 2."));
+        return;
+      }
+      if (page === d.aPage) {
+        ctx.notify(t("The second half of a match line goes on the other sheet — change page, then click end 1 and end 2 of the same line there."), "err");
+        return;
+      }
+      if (!d.b.length || d.bPage !== page) {
+        setJointDraft({ ...d, bPage: page, b: [q] });
+        return;
+      }
+      if (Math.hypot(d.b[0][0] - q[0], d.b[0][1] - q[1]) < 3 / zoom) return;
+      const b = [...d.b, q];
+      setJointDraft({ ...d, b });
+      // Asked again until it is a number from 0 to 200 (rc8, T7-7): a wrong
+      // answer used to drop the four clicks with the server's raw refusal.
+      let g = NaN;
+      let ask = t("Metres between the two lines (0 when both sheets show the same cut; more when they are drawn apart, e.g. a corridor left out)");
+      for (;;) {
+        const gap = prompt(ask, "0");
+        if (gap == null) { setJointDraft(null); return; }
+        g = gap.trim() === "" ? NaN : Number(gap.trim().replace(",", "."));
+        if (Number.isFinite(g) && g >= 0 && g <= 200) break;
+        ask = `${t("The gap is a number of metres from 0 to 200.")} ${t("Metres between the two lines (0 when both sheets show the same cut; more when they are drawn apart, e.g. a corridor left out)")}`;
+      }
+      try {
+        const j = await api.createPageJoint(p.id, {
+          a_page: d.aPage, a_x1: d.a[0][0], a_y1: d.a[0][1], a_x2: d.a[1][0], a_y2: d.a[1][1],
+          b_page: page, b_x1: b[0][0], b_y1: b[0][1], b_x2: b[1][0], b_y2: b[1][1],
+          gap_m: g,
+        });
+        ctx.notify(`${t("Match line")} ${j.label} ${t("between")} ${pageName(p, d.aPage)} ${t("and")} ${pageName(p, page)}. ${t("Re-run the analysis to see the effect.")}`);
+      } catch (err: any) { ctx.notify(err.message, "err"); }
+      setJointDraft(null);
+      await reloadAll();
+      setTool("select");
+      return;
+    }
+
     if (tool === "vertical") {
       // With several books a page number alone names no sheet (4.2.0): the
       // shaft was refused with "sheet 12 is not a sheet of this project".
@@ -987,6 +1053,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
     const name = type === "element" ? d.label
       : type === "area" ? `${t("the area")} ${d.label}`
       : type === "route" ? (d.label ? `${t("the route")} ${d.label}` : t("this route segment"))
+      : type === "joint" ? `${t("the match line")} ${d.label}`
       : `${t("the shaft between pages")} ${sheetNo(p, d.lower_page)} ${t("and")} ${sheetNo(p, d.upper_page)}`;
     if (type === "element" && d.locked) {
       ctx.notify(`${d.label}: ${t("locked — unlock it before deleting it")}`, "err");
@@ -1020,6 +1087,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
       if (type === "element") await api.deleteElement(p.id, d.id, scope);
       else if (type === "area") await api.deleteZone(p.id, d.id);
       else if (type === "route") await api.deleteRoute(p.id, d.id, true);
+      else if (type === "joint") await api.deletePageJoint(p.id, d.id);
       else await api.deleteVertical(p.id, d.id);
       await reloadAll();
       setSelected(null);
@@ -1035,7 +1103,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
   };
 
   const deleteSelected = async () => {
-    if (!selected || !["element", "route", "vertical", "area"].includes(selected.type)) return;
+    if (!selected || !["element", "route", "vertical", "joint", "area"].includes(selected.type)) return;
     await removeItem(selected.type, selected.data);
   };
 
@@ -1071,11 +1139,17 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
     if (key === "Enter" && tool === "area" && areaDraft.length) { void finishArea(); return true; }
     if (key === "Enter" && tool === "route" && draft.length) { void finishRoute(); return true; }
     if (key === "Enter" && tool === "measure" && measureDraft.length) { finishMeasure(); return true; }
-    if (key === "Escape" && (areaDraft.length || draft.length || measureDraft.length)) {
-      setAreaDraft([]); setDraft([]); setMeasureDraft([]); setHover(null); return true;
+    if (key === "Escape" && (areaDraft.length || draft.length || measureDraft.length || jointDraft)) {
+      setAreaDraft([]); setDraft([]); setMeasureDraft([]); setJointDraft(null); setHover(null); return true;
     }
     if (key === "Backspace") {
       if (tool === "route" && draft.length) { setDraft((d) => d.slice(0, -1)); return true; }
+      if (tool === "match" && jointDraft) {
+        setJointDraft(jointDraft.b.length
+          ? (jointDraft.b.length > 1 ? { ...jointDraft, b: jointDraft.b.slice(0, -1) } : { ...jointDraft, bPage: null, b: [] })
+          : (jointDraft.a.length > 1 ? { ...jointDraft, a: jointDraft.a.slice(0, -1) } : null));
+        return true;
+      }
       if (tool === "measure" && measureDraft.length) { setMeasureDraft((d) => d.slice(0, -1)); return true; }
       if (tool === "area" && areaDraft.length) { setAreaDraft((d) => d.slice(0, -1)); return true; }
     }
@@ -1227,7 +1301,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                       title={isKey && KEY_PLAN_BLOCKED.has(tl)
                         ? t("This page is a key plan — it only illustrates. Place the NER or the Wi-Fi point on the detail sheet, and point at it here with *NER.")
                         : tl === "delete"
-                        ? t("Eraser: click a marker, a wireless point, a named area, a route, a shaft or a measure to delete it. Stays on until you choose select.")
+                        ? t("Eraser: click a marker, a wireless point, a named area, a route, a shaft, a match line or a measure to delete it. Stays on until you choose select.")
                         : tl === "add-ner-ref-critical" || tl === "add-ner-ref"
                         ? t("A reference to a NER on a key plan: named after a NER of the register, drawn with its 90 m / 70 m circles to this sheet's scale, and counted nowhere — no register row, no TEAP link, no port")
                         : tl === "add-ter-ref" || tl === "add-cow-ref" || tl === "add-diva-ref"
@@ -1236,6 +1310,8 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                         ? t("A named area, to point something out (BTOC, TER, a compound): click each corner, double-click or press Enter to close it, then name it. Illustrative only — nothing is counted from it")
                         : tl === "route"
                         ? t("A cable route: click each corner along the cable path, double-click or press Enter to end it. Saved, shown with its length, and used by the analysis: a space and a NER within about 15 m of a route are measured along it instead of the straight line")
+                        : tl === "match"
+                        ? t("A match line: where one level is split over two sheets, click the two ends of the cut on this sheet, then the same two ends on the other sheet (end 1, then end 2). A NER on one sheet can then serve a space on the other, measured straight to the line, the gap you give, and straight on")
                         : tl === "measure"
                         ? t("Measure: click each corner, double-click or press Enter to end. Measured on this sheet's scale, on this sheet only; nothing is saved, exported or used by the analysis. Erase one with the eraser, or Clear measures")
                         : tl === "add-wireless"
@@ -1245,7 +1321,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                         : tl.startsWith("add-") && !ADD_KIND[tl].startsWith("NER")
                         ? t("Drawn on the plan only — never serves a space")
                         : undefined}
-                      onClick={() => { setTool(tl); setDraft([]); setAreaDraft([]); setMeasureDraft([]); setHover(null); }}>
+                      onClick={() => { setTool(tl); setDraft([]); setAreaDraft([]); setMeasureDraft([]); setJointDraft(null); setHover(null); }}>
                 {TOOL_LABEL[tl]}
               </button>
               ))}
@@ -1263,6 +1339,17 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
               {draft.length
                 ? `${draft.length} ${t("corner(s) — double-click or Enter to end, Backspace takes back a corner, Esc drops it")}`
                 : t("click where the cable path starts, then each corner along it. Starting or ending on another route joins the two.")}
+            </div>
+          )}
+          {tool === "match" && (
+            <div className="small tb-note">
+              {!jointDraft
+                ? t("click end 1 of the cut on this sheet, then end 2")
+                : jointDraft.a.length < 2
+                  ? t("click end 2 of the cut on this sheet")
+                  : !jointDraft.b.length
+                    ? `${t("now open the other sheet and click end 1 of the same line")} (${t("first half on")} ${pageName(p, jointDraft.aPage)}) · ${t("Esc drops it")}`
+                    : t("click end 2 of the same line on this sheet")}
             </div>
           )}
           {tool === "measure" && (
@@ -1397,7 +1484,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
           {/* While a route, a measure or an area is drawn, nothing on the
               sheet catches the click (4.7.0): a corner on a NER marker or on
               another route is the point of the click, not a selection. */}
-          <Layer listening={!(tool === "route" || tool === "measure" || tool === "area")}>
+          <Layer listening={!(tool === "route" || tool === "measure" || tool === "area" || tool === "match")}>
             {bg && !tiled && <KImage image={bg as any} width={pdfSize.w} height={pdfSize.h} listening={false} />}
             {tiled && p && (
               <PageTiles projectId={p.id} drawingId={tiled.drawingId} page={tiled.page}
@@ -1485,6 +1572,38 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                 </Group>
               );
             })}
+
+            {/* match lines (5.9.0-rc7): a dashed magenta line on the cut,
+                its two ends numbered, the sheet it leads to and the gap. */}
+            {joints.map((j) => {
+              const here = j.a_page === page;
+              const x1 = here ? j.a_x1 : j.b_x1, y1 = here ? j.a_y1 : j.b_y1;
+              const x2 = here ? j.a_x2 : j.b_x2, y2 = here ? j.a_y2 : j.b_y2;
+              const other = here ? j.b_page : j.a_page;
+              const on = selected?.type === "joint" && selected.data.id === j.id;
+              return (
+                <Group key={`j${j.id}`} onClick={(ev) => { ev.cancelBubble = true; pick("joint", j); }}>
+                  <Line points={[x1, y1, x2, y2]} stroke={on ? "#ff7a00" : JOINT_COLOUR}
+                        strokeWidth={(on ? 3 : 2) / zoom} dash={[8 / zoom, 5 / zoom]} hitStrokeWidth={10 / zoom} />
+                  <Text x={x1 + 4 / zoom} y={y1 + 2 / zoom} fontSize={10 / zoom} fill={JOINT_COLOUR} text="1" listening={false} />
+                  <Text x={x2 + 4 / zoom} y={y2 + 2 / zoom} fontSize={10 / zoom} fill={JOINT_COLOUR} text="2" listening={false} />
+                  <Text x={(x1 + x2) / 2 + 6 / zoom} y={(y1 + y2) / 2} fontSize={9 / zoom} fill={JOINT_COLOUR}
+                        text={`${j.label} ↔ p.${sheetNo(p, other)} · ${j.gap_m} m${j.levels_differ ? ` · ${t("not used: two levels")}` : ""}`} listening={false} />
+                </Group>
+              );
+            })}
+            {jointDraft && (() => {
+              const pts = jointDraft.aPage === page ? jointDraft.a
+                : jointDraft.bPage === page ? jointDraft.b : [];
+              return pts.map((q, i) => (
+                <Group key={`jd${i}`} listening={false}>
+                  <Circle x={q[0]} y={q[1]} radius={4 / zoom} fill={JOINT_COLOUR} />
+                  <Text x={q[0] + 6 / zoom} y={q[1] - 4 / zoom} fontSize={10 / zoom} fill={JOINT_COLOUR} text={String(i + 1)} />
+                </Group>
+              )).concat(pts.length === 2 ? [
+                <Line key="jdl" points={pts.flat()} stroke={JOINT_COLOUR} strokeWidth={2 / zoom}
+                      dash={[8 / zoom, 5 / zoom]} listening={false} />] : []);
+            })()}
 
             {/* coverage radii */}
             {/* Reach circles are a NER thing. A TER, an IDF and a COW never
@@ -1962,6 +2081,7 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                         <li>{t("Draw the same NER on that level's sheet too (same name; confirm it is the same NER): its ports add up, and each sheet is measured on its own.")}</li>
                         <li>{t("Or choose it under Served by on Demand per space: the ports count, the distance is not measured.")}</li>
                         <li>{t("Or register a shaft or riser between the two sheets (vertical) and trace the route: the distance goes through the shaft.")}</li>
+                        <li>{t("Same level, next sheet? Mark a match line between the two sheets (match line): the distance is measured across it.")}</li>
                         </ul>
                       </details>
                     </>
@@ -2151,6 +2271,49 @@ export function Viewer({ ctx }: { ctx: Ctx }) {
                      if (v !== (selected.data.notes || "")) void patchArea({ notes: v });
                    }} />
             <p className="small muted">{(selected.data.polygon || []).length} {t("corners")}</p>
+            <div className="row">
+              <button className="small danger" onClick={deleteSelected}>{t("Delete")}</button>
+            </div>
+            <p className="small muted">{t("Or press Delete on the keyboard.")}</p>
+          </>
+        )}
+
+        {selected?.type === "joint" && (
+          <>
+            <h3>{t("Match line")} {selected.data.label}</h3>
+            <p className="small muted">
+              {pageName(p, selected.data.a_page)} ↔ {pageName(p, selected.data.b_page)} · {t("gap")} {selected.data.gap_m} m
+            </p>
+            {selected.data.levels_differ && (
+              <p className="small" style={{ color: "var(--bad)" }}>
+                <strong>{t("Not used:")}</strong> {t("the two sheets are on different levels now")} ({selected.data.levels_differ}). {t("A match line joins sheets of one level; between levels register a shaft or riser (vertical), or delete this line.")}
+              </p>
+            )}
+            <p className="small">
+              {t("A space on one sheet and a NER on the other are measured straight to this line, plus the gap, plus straight on from the same place on the line on the other sheet — the shortest such path. It only joins sheets of one level; between levels use a shaft or riser. The space's assumptions say when a distance went across it.")}
+            </p>
+            <label className="small">{t("Gap between the sheets (m)")}{" "}
+              <input type="number" min={0} max={200} step={0.5} defaultValue={selected.data.gap_m}
+                     key={`gap${selected.data.id}-${selected.data.gap_m}`} style={{ width: 80 }}
+                     onBlur={async (e) => {
+                       // An emptied box is no answer (rc8, T7-5: it set the
+                       // gap to 0); nor is a number outside 0-200.
+                       const raw = e.target.value.trim().replace(",", ".");
+                       const g = raw === "" ? NaN : Number(raw);
+                       if (!Number.isFinite(g) || g < 0 || g > 200) {
+                         e.target.value = String(selected.data.gap_m);
+                         if (raw !== "") ctx.notify(t("The gap is a number of metres from 0 to 200."), "err");
+                         return;
+                       }
+                       if (g === selected.data.gap_m) return;
+                       try {
+                         const fresh = await api.patchPageJoint(p.id, selected.data.id, { gap_m: g });
+                         await reloadAll();
+                         setSelected({ type: "joint", data: fresh });
+                         ctx.notify(`${fresh.label}: ${t("gap")} ${fresh.gap_m} m. ${t("Re-run the analysis to see the effect.")}`);
+                       } catch (err: any) { ctx.notify(err.message, "err"); }
+                     }} />
+            </label>
             <div className="row">
               <button className="small danger" onClick={deleteSelected}>{t("Delete")}</button>
             </div>

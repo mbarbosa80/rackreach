@@ -220,6 +220,7 @@ def composite_undo(project_id: int, audit_id: int, user: User = Depends(current_
 @router.post("/projects/{project_id}/composite-report")
 def composite_report(project_id: int, legend: bool = Query(True),
                      notes: bool = Query(False),
+                     radii: bool = Query(True),
                      db: Session = Depends(get_session)) -> dict:
     """The composite map PDF — one page per map built — as a job. Beside the
     marked-up PDF on the Reports screen, never instead of it."""
@@ -233,11 +234,11 @@ def composite_report(project_id: int, legend: bool = Query(True),
         out_dir = settings.exports_dir / f"project_{project_id}"
         out_dir.mkdir(parents=True, exist_ok=True)
         info = CS.export_pdf(jdb, pp, out_dir / name, progress=ctx.progress, draw_legend=legend,
-                             draw_notes=notes)
+                             draw_notes=notes, draw_radii=radii)
         from .. import services as S
         S.audit(jdb, project_id, "report.generated",
                 payload={"format": "composite pdf", "file": name, "pages": info["pages"],
-                         "notes": notes})
+                         "notes": notes, "radii": radii})
         jdb.commit()
         return {"file": name, "pages": info["pages"],
                 "download": f"/api/projects/{project_id}/reports/download/{name}",

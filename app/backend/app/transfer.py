@@ -56,6 +56,7 @@ from .models import (Alias, AuditLog, Drawing, DrawingSpace, Element, MappingTem
                      NerAsset, NerConsolidation, NerNameHistory, Page, Project,
                      RegisterSnapshot, RouteSegmentRow, Scenario, SpaceMatchRow,
                      SpaceOccurrenceLink, TeapFile, TeapSpace, VerticalLinkRow, Visibility,
+                     PageJointRow,
                      Zone)
 from .version import __version__
 
@@ -106,6 +107,9 @@ TABLES: list[tuple[str, Any, dict[str, str]]] = [
     ("vertical_links", VerticalLinkRow, {"project_id": "projects",
                                          "lower_drawing_id": "drawings",
                                          "upper_drawing_id": "drawings"}),
+    ("page_joints", PageJointRow, {"project_id": "projects",
+                                   "a_drawing_id": "drawings",
+                                   "b_drawing_id": "drawings"}),
     ("aliases", Alias, {"project_id": "projects"}),
     ("ner_name_history", NerNameHistory, {"ner_asset_id": "ner_assets"}),
     ("ner_consolidations", NerConsolidation, {"project_id": "projects",
@@ -131,6 +135,7 @@ AUDIT_ENTITY_TABLE = {
     "teap_file": "teap_files", "teap_space": "teap_spaces", "space_match": "space_matches",
     "space_occurrence_link": "space_occurrence_links", "zone": "zones",
     "route_segment": "route_segments", "vertical_link": "vertical_links", "alias": "aliases",
+    "page_joint": "page_joints",
 }
 
 #: Project columns that are the receiving computer's to set.

@@ -45,7 +45,14 @@ async function req<T>(path: string, init?: RequestInit): Promise<T> {
     let detail = `${res.status} ${res.statusText}`;
     try {
       const body = await res.json();
-      if (body?.detail) detail = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail);
+      if (body?.detail) {
+        // A refusal of the request's shape (422 from validation) comes as a
+        // list of {loc, msg}: said in words, not as JSON (5.9.0-rc8, T7-7).
+        detail = typeof body.detail === "string" ? body.detail
+          : Array.isArray(body.detail)
+            ? body.detail.map((d: any) => `${(d?.loc || []).filter((x: any) => x !== "body").join(".")}: ${d?.msg ?? ""}`.replace(/^: /, "")).join("; ")
+            : JSON.stringify(body.detail);
+      }
     } catch {
       /* keep the status line */
     }
@@ -261,6 +268,15 @@ export const api = {
   verticals: (id: number) => req<any[]>(`/projects/${id}/verticals`),
   createVertical: (id: number, body: any) =>
     req<any>(`/projects/${id}/verticals`, { method: "POST", body: JSON.stringify(body) }),
+  /** Match lines between two sheets of one level (5.9.0-rc7): the same cut
+   *  marked on both sheets, end 1 with end 1, end 2 with end 2. */
+  pageJoints: (id: number) => req<any[]>(`/projects/${id}/page-joints`),
+  createPageJoint: (id: number, body: any) =>
+    req<any>(`/projects/${id}/page-joints`, { method: "POST", body: JSON.stringify(body) }),
+  patchPageJoint: (id: number, jointId: number, body: { gap_m?: number; label?: string }) =>
+    req<any>(`/projects/${id}/page-joints/${jointId}`, { method: "PATCH", body: JSON.stringify(body) }),
+  deletePageJoint: (id: number, jointId: number) =>
+    req<void>(`/projects/${id}/page-joints/${jointId}`, { method: "DELETE" }),
 
   analyse: (id: number, scenario = "As-Is", background = true) =>
     req<any>(
@@ -281,9 +297,10 @@ export const api = {
   importAliases: (id: number, body: any) =>
     req<any>(`/projects/${id}/aliases/import`, { method: "POST", body: JSON.stringify(body) }),
   report: (id: number, fmt: "pdf" | "xlsx" | "csv",
-           background = false, legend = true, lines = true, notes = false) =>
+           background = false, legend = true, lines = true, notes = false, radii = true) =>
     req<any>(`/projects/${id}/reports/${fmt}` +
-             `?background=${background}&legend=${legend}&lines=${lines}&notes=${notes}`,
+             `?background=${background}&legend=${legend}&lines=${lines}&notes=${notes}` +
+             `&radii=${radii}`,
              { method: "POST" }),
   audit: (id: number) => req<any[]>(`/projects/${id}/audit`),
 
@@ -315,8 +332,8 @@ export const api = {
     }),
   undoMapMove: (id: number, auditId: number) =>
     req<any>(`/projects/${id}/composite/undo/${auditId}`, { method: "POST" }),
-  compositeReport: (id: number, legend = true, notes = false) =>
-    req<any>(`/projects/${id}/composite-report?legend=${legend}&notes=${notes}`,
+  compositeReport: (id: number, legend = true, notes = false, radii = true) =>
+    req<any>(`/projects/${id}/composite-report?legend=${legend}&notes=${notes}&radii=${radii}`,
              { method: "POST" }),
   accountAudit: () => req<any[]>(`/admin/audit`),
   templates: () => req<any[]>(`/mapping-templates`),

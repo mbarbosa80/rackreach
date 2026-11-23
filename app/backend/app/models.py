@@ -577,6 +577,31 @@ class VerticalLinkRow(Base):
     label: Mapped[str] = mapped_column(String(200), default="")
 
 
+class PageJointRow(Base):
+    """A match line marked on two sheets of one level (5.9.0-rc7): end 1 with
+    end 1, end 2 with end 2. See :mod:`app.domain.joints`."""
+    __tablename__ = "page_joints"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    project_id: Mapped[int] = mapped_column(ForeignKey("projects.id", ondelete="CASCADE"), index=True)
+    #: the books of the two sheets; NULL = the project's first
+    a_drawing_id: Mapped[Optional[int]] = mapped_column(Integer, default=None)
+    a_page: Mapped[int] = mapped_column(Integer)
+    a_x1: Mapped[float] = mapped_column(Float)
+    a_y1: Mapped[float] = mapped_column(Float)
+    a_x2: Mapped[float] = mapped_column(Float)
+    a_y2: Mapped[float] = mapped_column(Float)
+    b_drawing_id: Mapped[Optional[int]] = mapped_column(Integer, default=None)
+    b_page: Mapped[int] = mapped_column(Integer)
+    b_x1: Mapped[float] = mapped_column(Float)
+    b_y1: Mapped[float] = mapped_column(Float)
+    b_x2: Mapped[float] = mapped_column(Float)
+    b_y2: Mapped[float] = mapped_column(Float)
+    #: what lies between the two drawn lines in reality; 0 for a match line
+    gap_m: Mapped[float] = mapped_column(Float, default=0.0)
+    label: Mapped[str] = mapped_column(String(200), default="")
+
+
 class Scenario(Base):
     __tablename__ = "scenarios"
     __table_args__ = (UniqueConstraint("project_id", "name"),)

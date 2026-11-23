@@ -301,8 +301,13 @@ def read_sheet(path: str, sheet: str, header_row: int,
         if sheet not in wb.sheetnames:
             raise ValueError(f"sheet {sheet!r} not present in the workbook")
         ws = wb[sheet]
+        # A header row past the end of the sheet is said in words (5.9.0-rc3,
+        # T4-6): next() on nothing raised StopIteration - a bare 500.
         header_cells = next(ws.iter_rows(min_row=header_row, max_row=header_row,
-                                         values_only=True))
+                                         values_only=True), None)
+        if header_cells is None:
+            raise ValueError(f"row {header_row} is past the end of sheet {sheet!r}: "
+                             "choose the row that holds the column names")
         headers = [str(c).strip() if c is not None else "" for c in header_cells]
         index_of = {h: i for i, h in enumerate(headers) if h}
 
@@ -408,8 +413,13 @@ def preview_venues(path: str, sheet: str, header_row: int,
         if sheet not in wb.sheetnames:
             raise ValueError(f"sheet {sheet!r} not present in the workbook")
         ws = wb[sheet]
+        # A header row past the end of the sheet is said in words (5.9.0-rc3,
+        # T4-6): next() on nothing raised StopIteration - a bare 500.
         header_cells = next(ws.iter_rows(min_row=header_row, max_row=header_row,
-                                         values_only=True))
+                                         values_only=True), None)
+        if header_cells is None:
+            raise ValueError(f"row {header_row} is past the end of sheet {sheet!r}: "
+                             "choose the row that holds the column names")
         headers = [str(c).strip() if c is not None else "" for c in header_cells]
         index_of = {h: i for i, h in enumerate(headers) if h}
 

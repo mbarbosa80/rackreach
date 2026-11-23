@@ -295,7 +295,7 @@ _INTERFACE_LOWER_CASE = {
     "tied by hand", "matched, confirmed", "matched, not confirmed", "same room",
     "tied to another room", "other level", "is on", "this space is on",
     "unticked: the room is not counted", "other level — not measured",
-    "via vertical route", "open all", "fold all", "with NER → space lines", "with NER notes", "level?", "no level",
+    "via vertical route", "open all", "fold all", "with NER → space lines", "with NER notes", "with reach circles", "level?", "no level",
     "matched, not yet confirmed",
     # 2.6.0 — the tiles are the filter; Undo takes a decision back
     "no room found — choose one by hand", "with no room found — choose one by hand",
@@ -323,6 +323,12 @@ _INTERFACE_LOWER_CASE = {
     "no room on the drawing — counted on this NER, distance not measured",
     "no number for", "add it to the convention", "no suggestion yet",
     "reference placed on this sheet — drawn only, with its reach circles; nothing is counted. Click again to place another, choose select to stop.",
+    # 5.9.0-rc7 — the match-line tool's hints on the toolbar
+    "click end 1 of the cut on this sheet, then end 2", "click end 2 of the cut on this sheet",
+    "click end 2 of the same line on this sheet", "first half on",
+    "now open the other sheet and click end 1 of the same line", "the match line",
+    # 5.9.0-rc8 — a match line whose two sheets are on two levels now
+    "the two sheets are on different levels now", "not used: two levels",
 }
 
 
